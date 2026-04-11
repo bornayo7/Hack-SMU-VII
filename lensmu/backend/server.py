@@ -50,6 +50,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from security import add_security_middleware, validate_image_size
+
 # ---------------------------------------------------------------------------
 # Import OCR engine wrappers with graceful fallback.
 #
@@ -370,6 +372,14 @@ app = FastAPI(
 )
 
 
+# --- Security Middleware -------------------------------------------------------
+# Rate limiting, request size validation, and security headers.
+# Must be added BEFORE CORS middleware (middleware runs in reverse order).
+# ---------------------------------------------------------------------------
+
+add_security_middleware(app)
+
+
 # --- CORS Middleware ----------------------------------------------------------
 # CORS (Cross-Origin Resource Sharing) is a browser security feature that
 # blocks web pages from making requests to a different origin (domain/port)
@@ -536,6 +546,9 @@ async def paddle_ocr(request: PaddleOCRRequest) -> PaddleOCRResponse:
     # Step 1: Decode the base64 image.
     image_bytes = decode_base64_image(request.image)
 
+    # Step 1b: Validate image size (reject oversized payloads).
+    validate_image_size(image_bytes)
+
     # Step 2: Get or create the PaddleOCR engine (lazy-loaded singleton).
     # On the first request, this triggers model download and initialization.
     try:
@@ -643,6 +656,9 @@ async def manga_ocr(request: MangaOCRRequest) -> MangaOCRResponse:
 
     # Step 1: Decode the base64 image.
     image_bytes = decode_base64_image(request.image)
+
+    # Step 1b: Validate image size (reject oversized payloads).
+    validate_image_size(image_bytes)
 
     # Step 2: Get or create the MangaOCR engine (lazy-loaded singleton).
     try:
