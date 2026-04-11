@@ -457,16 +457,159 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
        */
       case 'OCR_REQUEST': {
         const settings = await getSettings();
+        const engine = settings.ocrEngine || 'tesseract';
         const backendUrl = settings.backendUrl || 'http://localhost:8000';
-        const result = await proxyFetch(`${backendUrl}/api/ocr`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: payload.imageBase64,
-            source_lang: payload.sourceLang || 'auto'
-          })
-        });
-        sendResponse(result);
+
+        try {
+          let ocrResult;
+
+          if (engine === 'paddleocr') {
+            /*
+             * PaddleOCR: send to local FastAPI backend.
+             * The backend returns { detections: [{text, bbox, confidence, orientation}] }
+             * We normalize this to the format content.js expects.
+             */
+            const response = await proxyFetch(`${backendUrl}/ocr/paddle`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: payload.imageBase64 })
+            });
+
+            if (!response.ok) {
+              sendResponse(response);
+              break;
+            }
+
+            const data = response.body;
+            ocrResult = {
+              blocks: (data.detections || []).map(d => ({
+                text: d.text,
+                confidence: d.confidence,
+                bbox: { x: d.bbox[0], y: d.bbox[1], width: d.bbox[2] - d.bbox[0], height: d.bbox[3] - d.bbox[1] },
+                orientation: d.orientation || 'horizontal'
+              })),
+              source_lang: payload.sourceLang
+            };
+
+          } else if (engine === 'mangaocr') {
+            /*
+             * MangaOCR: two-step. First PaddleOCR for detection, then MangaOCR for recognition.
+             * If PaddleOCR isn't available, tell the user.
+             */
+            const detectResponse = await proxyFetch(`${backendUrl}/ocr/paddle`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: payload.imageBase64 })
+            });
+
+            if (!detectResponse.ok) {
+              sendResponse(detectResponse);
+              break;
+            }
+
+            const bboxes = (detectResponse.body.detections || []).map(d => d.bbox);
+
+            if (bboxes.length === 0) {
+              ocrResult = { blocks: [], source_lang: 'ja' };
+            } else {
+              const mangaResponse = await proxyFetch(`${backendUrl}/ocr/manga`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: payload.imageBase64, bboxes })
+              });
+
+              if (!mangaResponse.ok) {
+                sendResponse(mangaResponse);
+                break;
+              }
+
+              ocrResult = {
+                blocks: (mangaResponse.body.detections || []).map(d => ({
+                  text: d.text,
+                  confidence: 0.9,
+                  bbox: { x: d.bbox[0], y: d.bbox[1], width: d.bbox[2] - d.bbox[0], height: d.bbox[3] - d.bbox[1] },
+                  orientation: 'vertical'
+                })),
+                source_lang: 'ja'
+              };
+            }
+
+          } else if (engine === 'cloudvision') {
+            /*
+             * Google Cloud Vision: call the API directly from the service worker.
+             */
+            const apiKey = settings.googleVisionApiKey;
+            if (!apiKey) {
+              sendResponse({ ok: false, body: { error: 'Google Cloud Vision requires an API key. Set it in extension settings.' } });
+              break;
+            }
+
+            const visionResponse = await fetch(
+              `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  requests: [{
+                    image: { content: payload.imageBase64 },
+                    features: [{ type: 'TEXT_DETECTION' }]
+                  }]
+                })
+              }
+            );
+
+            if (!visionResponse.ok) {
+              const err = await visionResponse.json().catch(() => ({}));
+              sendResponse({ ok: false, body: { error: err?.error?.message || visionResponse.statusText } });
+              break;
+            }
+
+            const visionData = await visionResponse.json();
+            const annotations = visionData.responses?.[0]?.textAnnotations || [];
+
+            /* Skip the first annotation (it's the full page text) */
+            ocrResult = {
+              blocks: annotations.slice(1).map(a => {
+                const vs = a.boundingPoly?.vertices || [];
+                const xs = vs.map(v => v.x || 0);
+                const ys = vs.map(v => v.y || 0);
+                return {
+                  text: a.description,
+                  confidence: 0.9,
+                  bbox: {
+                    x: Math.min(...xs),
+                    y: Math.min(...ys),
+                    width: Math.max(...xs) - Math.min(...xs),
+                    height: Math.max(...ys) - Math.min(...ys)
+                  }
+                };
+              }),
+              source_lang: visionData.responses?.[0]?.textAnnotations?.[0]?.locale || 'auto'
+            };
+
+          } else {
+            /*
+             * Tesseract.js (default): runs client-side in the content script.
+             * We tell the content script to handle OCR itself. The content script
+             * will use the tesseract.js library loaded in the page.
+             * For now, return a special response that tells content.js to use
+             * client-side OCR.
+             */
+            sendResponse({
+              ok: true,
+              body: { useClientOCR: true, engine: 'tesseract' }
+            });
+            break;
+          }
+
+          sendResponse({ ok: true, body: ocrResult });
+        } catch (ocrError) {
+          console.error('[VisionTranslate] OCR error:', ocrError);
+          sendResponse({
+            ok: false,
+            body: { error: `OCR failed: ${ocrError.message}` }
+          });
+        }
         break;
       }
 

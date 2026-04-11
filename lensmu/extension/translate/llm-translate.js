@@ -140,6 +140,8 @@ export async function translateWithLLM(texts, sourceLang, targetLang, apiKey, pr
     responseText = await callOpenAI(userMessage, apiKey, model);
   } else if (provider === 'claude') {
     responseText = await callClaude(userMessage, apiKey, model);
+  } else if (provider === 'gemini') {
+    responseText = await callGemini(userMessage, apiKey, model);
   } else {
     throw new Error(`Unknown LLM provider: ${provider}`);
   }
@@ -302,6 +304,68 @@ async function callClaude(userMessage, apiKey, model) {
    * }
    */
   return data.content?.[0]?.text || '';
+}
+
+/**
+ * Call the Google Gemini API.
+ *
+ * API docs: https://ai.google.dev/gemini-api/docs
+ *
+ * @param {string} userMessage — The user prompt
+ * @param {string} apiKey      — Google AI API key
+ * @param {string} model       — Model ID (e.g., "gemini-2.0-flash", "gemini-2.5-pro-preview-06-05")
+ * @returns {Promise<string>}  — The model's response text
+ */
+async function callGemini(userMessage, apiKey, model) {
+  /*
+   * Gemini uses a REST API where the model name is part of the URL.
+   * The API key is passed as a query parameter.
+   *
+   * We combine the system prompt and user message into the contents
+   * array since Gemini handles system instructions via a separate field.
+   */
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: MANGA_TRANSLATION_SYSTEM_PROMPT }]
+        },
+        contents: [{
+          parts: [{ text: userMessage }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 2000
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      `Gemini API error (${response.status}): ${error?.error?.message || response.statusText}`
+    );
+  }
+
+  const data = await response.json();
+
+  /*
+   * Gemini response format:
+   * {
+   *   "candidates": [{
+   *     "content": {
+   *       "parts": [{ "text": "[1] Hello\n[2] Goodbye" }]
+   *     }
+   *   }]
+   * }
+   */
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 /**

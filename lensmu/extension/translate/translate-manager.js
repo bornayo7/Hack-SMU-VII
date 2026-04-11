@@ -166,6 +166,25 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
         break;
       }
 
+      case 'gemini': {
+        const apiKey = settings.geminiApiKey;
+        if (!apiKey) {
+          throw new Error(
+            'Gemini translation requires an API key. ' +
+            'Please add your key in the extension settings.'
+          );
+        }
+        result = await translateWithLLM(
+          filteredTexts,
+          sourceLang,
+          targetLang,
+          apiKey,
+          'gemini',
+          settings.geminiModel || 'gemini-2.0-flash'
+        );
+        break;
+      }
+
       case 'libre':
       default: {
         /*

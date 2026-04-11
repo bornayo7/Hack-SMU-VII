@@ -115,6 +115,12 @@ let pageObserver = null;
 let toolbarContainer = null;
 
 /*
+ * Set of translate-icon buttons we've added to images, so we can
+ * remove them on deactivate.
+ */
+const translateIcons = new Set();
+
+/*
  * --------------------------------------------------------------------------
  * Utility: Convert an image element to a base64-encoded data URL
  * --------------------------------------------------------------------------
@@ -135,6 +141,105 @@ let toolbarContainer = null;
  *        The base64 data URL (e.g., "data:image/png;base64,iVBOR...")
  *        or null if conversion fails (usually due to CORS tainted canvas).
  */
+
+/*
+ * --------------------------------------------------------------------------
+ * Client-Side OCR with Tesseract.js
+ * --------------------------------------------------------------------------
+ * Runs OCR entirely in the browser using Tesseract.js (WebAssembly).
+ * No server needed. This is the default/fallback OCR engine.
+ *
+ * Tesseract.js is loaded dynamically via a CDN. On first call it downloads
+ * the WASM binary and trained data (~15 MB total), which is cached by the
+ * browser for subsequent runs.
+ *
+ * @param {string} imageBase64 — Data URL (data:image/png;base64,...) or raw base64
+ * @returns {Promise<Array>}   — Array of {text, confidence, bbox: {x,y,width,height}}
+ */
+let tesseractWorker = null;
+
+async function runTesseractOCR(imageBase64) {
+  /*
+   * Lazy-load Tesseract.js from CDN if not already loaded.
+   * We inject a <script> tag into the page to load it.
+   */
+  if (typeof Tesseract === 'undefined') {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Failed to load Tesseract.js from CDN'));
+      document.head.appendChild(script);
+    });
+  }
+
+  /*
+   * Create a Tesseract worker (reuse across calls).
+   * The worker runs in a Web Worker thread so it doesn't block the UI.
+   * We default to English + Japanese recognition.
+   */
+  if (!tesseractWorker) {
+    const lang = currentSettings.sourceLanguage || 'eng';
+    /* Map ISO 639-1 codes to Tesseract's 3-letter codes */
+    const langMap = {
+      'auto': 'eng+jpn', 'en': 'eng', 'ja': 'jpn', 'zh': 'chi_sim',
+      'zh-TW': 'chi_tra', 'ko': 'kor', 'es': 'spa', 'fr': 'fra',
+      'de': 'deu', 'pt': 'por', 'ru': 'rus', 'ar': 'ara',
+      'hi': 'hin', 'th': 'tha', 'vi': 'vie', 'it': 'ita'
+    };
+    const tessLang = langMap[lang] || 'eng+jpn';
+
+    tesseractWorker = await Tesseract.createWorker(tessLang, 1, {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          updateToolbarStatus(`OCR: ${Math.round(m.progress * 100)}%`);
+        }
+      }
+    });
+  }
+
+  /* Run recognition */
+  const result = await tesseractWorker.recognize(imageBase64);
+
+  /* Convert Tesseract output to our standard format */
+  const blocks = [];
+  for (const word of (result.data.words || [])) {
+    if (word.text.trim().length === 0) continue;
+    blocks.push({
+      text: word.text,
+      confidence: word.confidence / 100, /* Tesseract uses 0-100, we use 0-1 */
+      bbox: {
+        x: word.bbox.x0,
+        y: word.bbox.y0,
+        width: word.bbox.x1 - word.bbox.x0,
+        height: word.bbox.y1 - word.bbox.y0
+      }
+    });
+  }
+
+  /*
+   * Merge individual words into lines for better translation.
+   * Tesseract returns word-by-word results, but we want line-level
+   * blocks for translation context and overlay rendering.
+   */
+  const lines = [];
+  for (const line of (result.data.lines || [])) {
+    if (line.text.trim().length === 0) continue;
+    lines.push({
+      text: line.text.trim(),
+      confidence: line.confidence / 100,
+      bbox: {
+        x: line.bbox.x0,
+        y: line.bbox.y0,
+        width: line.bbox.x1 - line.bbox.x0,
+        height: line.bbox.y1 - line.bbox.y0
+      }
+    });
+  }
+
+  return lines.length > 0 ? lines : blocks;
+}
+
 function imageToBase64(imageElement) {
   try {
     /*
@@ -648,7 +753,23 @@ async function processImage(imageInfo) {
       return;
     }
 
-    const ocrResults = ocrResponse.body?.blocks || [];
+    /*
+     * If the background script tells us to use client-side OCR (Tesseract.js),
+     * we run it right here in the content script. Tesseract.js is loaded
+     * from the extension bundle and runs entirely in the browser via WASM.
+     */
+    let ocrResults;
+    if (ocrResponse.body?.useClientOCR) {
+      console.log('[VisionTranslate] Using client-side Tesseract.js OCR');
+      try {
+        ocrResults = await runTesseractOCR(imageBase64);
+      } catch (tessError) {
+        console.warn('[VisionTranslate] Tesseract.js OCR failed:', tessError.message);
+        return;
+      }
+    } else {
+      ocrResults = ocrResponse.body?.blocks || [];
+    }
 
     /* If no text was found in the image, skip it */
     if (ocrResults.length === 0) {
@@ -750,6 +871,164 @@ async function processImage(imageInfo) {
   } catch (error) {
     console.error('[VisionTranslate] Error processing image:', error);
   }
+}
+
+/*
+ * --------------------------------------------------------------------------
+ * Per-Image Translate Icons
+ * --------------------------------------------------------------------------
+ * When the extension is activated, we add a small translate icon to the
+ * corner of each qualifying image. The user can:
+ *   - Click the icon to translate just that one image
+ *   - Or use "Translate This Page" to do them all at once
+ *
+ * The icon is a small circular button with a translate symbol (文/A) that
+ * appears on hover in the top-right corner of the image.
+ */
+
+/**
+ * Add translate icons to all qualifying images on the page.
+ * Called during activation to give users per-image control.
+ */
+function addTranslateIcons() {
+  const images = scanForImages();
+
+  for (const imageInfo of images) {
+    const { element } = imageInfo;
+
+    /* Skip if icon already added */
+    if (element.dataset.vtIconAdded) continue;
+    element.dataset.vtIconAdded = 'true';
+
+    /*
+     * We need the image's parent to be position:relative so we can
+     * absolutely position the icon. Check if it already is.
+     */
+    const parent = element.parentElement;
+    if (!parent) continue;
+
+    const parentPosition = window.getComputedStyle(parent).position;
+
+    /* Create a wrapper if the parent isn't already positioned */
+    let iconAnchor;
+    if (parentPosition === 'static' || parentPosition === '') {
+      /* For <img> elements, wrap them in a positioned div */
+      if (element.tagName === 'IMG') {
+        const wrapper = document.createElement('div');
+        wrapper.className = `${CLASS_PREFIX}-icon-wrapper`;
+        wrapper.style.cssText = `
+          position: relative;
+          display: inline-block;
+        `;
+        element.parentNode.insertBefore(wrapper, element);
+        wrapper.appendChild(element);
+        iconAnchor = wrapper;
+      } else {
+        /* For other elements (background, canvas), set position on the element itself */
+        element.style.position = 'relative';
+        iconAnchor = element;
+      }
+    } else {
+      iconAnchor = parent;
+    }
+
+    /* Create the translate icon button */
+    const icon = document.createElement('button');
+    icon.className = `${CLASS_PREFIX}-translate-icon`;
+    icon.title = 'Translate this image';
+    icon.innerHTML = '文A';
+    icon.style.cssText = `
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 2147483646;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.8);
+      background: rgba(59, 130, 246, 0.9);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s ease, transform 0.15s ease;
+      pointer-events: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      line-height: 1;
+      padding: 0;
+    `;
+
+    /* Show icon on hover over the image area */
+    const showIcon = () => { icon.style.opacity = '1'; };
+    const hideIcon = () => {
+      if (!icon.dataset.translating) icon.style.opacity = '0';
+    };
+
+    iconAnchor.addEventListener('mouseenter', showIcon);
+    iconAnchor.addEventListener('mouseleave', hideIcon);
+
+    /* Click handler: translate just this image */
+    icon.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      /* Visual feedback: show loading state */
+      icon.dataset.translating = 'true';
+      icon.innerHTML = '⟳';
+      icon.style.opacity = '1';
+      icon.style.animation = 'spin 1s linear infinite';
+
+      /* Add spin animation if not already present */
+      if (!document.getElementById(`${CLASS_PREFIX}-spin-style`)) {
+        const style = document.createElement('style');
+        style.id = `${CLASS_PREFIX}-spin-style`;
+        style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+        document.head.appendChild(style);
+      }
+
+      try {
+        await processImage(imageInfo);
+        /* Replace icon with checkmark on success */
+        icon.innerHTML = '✓';
+        icon.style.background = 'rgba(34, 197, 94, 0.9)';
+        icon.style.animation = 'none';
+        setTimeout(() => { icon.style.opacity = '0'; }, 2000);
+      } catch (err) {
+        /* Show error state */
+        icon.innerHTML = '✗';
+        icon.style.background = 'rgba(239, 68, 68, 0.9)';
+        icon.style.animation = 'none';
+        console.error('[VisionTranslate] Single image translation failed:', err);
+      }
+
+      delete icon.dataset.translating;
+    });
+
+    iconAnchor.appendChild(icon);
+    translateIcons.add({ icon, anchor: iconAnchor, showIcon, hideIcon });
+  }
+}
+
+/**
+ * Remove all translate icons from the page.
+ */
+function removeTranslateIcons() {
+  for (const { icon, anchor, showIcon, hideIcon } of translateIcons) {
+    anchor.removeEventListener('mouseenter', showIcon);
+    anchor.removeEventListener('mouseleave', hideIcon);
+    icon.remove();
+  }
+  translateIcons.clear();
+
+  /* Remove data attributes */
+  document.querySelectorAll(`[data-vt-icon-added]`).forEach(el => {
+    delete el.dataset.vtIconAdded;
+  });
 }
 
 /*
@@ -1090,6 +1369,9 @@ function createToolbar() {
       <div class="toolbar-logo" id="toolbar-logo" title="Click to collapse/expand">VT</div>
       <div class="toolbar-content" id="toolbar-content">
         <span class="toolbar-status" id="toolbar-status">Scanning images...</span>
+        <button class="toolbar-btn" id="btn-translate-all" title="Translate all images on this page">
+          Translate All
+        </button>
         <button class="toolbar-btn active" id="btn-toggle" title="Show/hide translations">
           Translations: ON
         </button>
@@ -1107,12 +1389,23 @@ function createToolbar() {
    */
   const toolbar = shadow.getElementById('toolbar');
   const logo = shadow.getElementById('toolbar-logo');
+  const translateAllBtn = shadow.getElementById('btn-translate-all');
   const toggleBtn = shadow.getElementById('btn-toggle');
   const closeBtn = shadow.getElementById('btn-close');
 
   /* Logo click: collapse/expand the toolbar */
   logo.addEventListener('click', () => {
     toolbar.classList.toggle('collapsed');
+  });
+
+  /* Translate All button: process every image on the page */
+  translateAllBtn.addEventListener('click', async () => {
+    translateAllBtn.textContent = 'Translating...';
+    translateAllBtn.disabled = true;
+    updateToolbarStatus('Translating all images...');
+    await processAllImages();
+    translateAllBtn.textContent = 'Done ✓';
+    updateToolbarStatus('Translation complete');
   });
 
   /* Toggle button: show/hide all translation overlays */
@@ -1216,6 +1509,21 @@ function cleanupAll() {
     canvas.remove();
   }
 
+  /* Remove per-image translate icons */
+  removeTranslateIcons();
+
+  /* Also remove icon wrappers */
+  const iconWrappers = document.querySelectorAll(`.${CLASS_PREFIX}-icon-wrapper`);
+  for (const wrapper of iconWrappers) {
+    const children = Array.from(wrapper.children);
+    for (const child of children) {
+      if (!child.classList?.contains(`${CLASS_PREFIX}-translate-icon`)) {
+        wrapper.parentNode.insertBefore(child, wrapper);
+      }
+    }
+    wrapper.remove();
+  }
+
   /* Remove the toolbar */
   if (toolbarContainer) {
     toolbarContainer.remove();
@@ -1266,10 +1574,20 @@ async function activate(settings) {
   /* Set up the MutationObserver to catch dynamically loaded images */
   setupMutationObserver();
 
-  /* Process all currently visible images */
+  /*
+   * Add translate icons to all qualifying images. Users can click
+   * individual icons to translate specific images, or use the
+   * "Translate All" button in the toolbar to do them all at once.
+   */
   updateToolbarStatus('Scanning for images...');
-  await processAllImages();
-  updateToolbarStatus('Translation complete');
+  addTranslateIcons();
+
+  const imageCount = translateIcons.size;
+  if (imageCount === 0) {
+    updateToolbarStatus('No translatable images found');
+  } else {
+    updateToolbarStatus(`Found ${imageCount} images — hover to translate`);
+  }
 }
 
 /*
@@ -1312,8 +1630,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
      * ACTIVATE: Start scanning and translating images on this page.
      * The payload contains the current settings (target language, etc.)
      */
-    case 'ACTIVATE': {
-      activate(payload?.settings).then(() => {
+    case 'ACTIVATE':
+    case 'TRANSLATE_PAGE': {
+      /*
+       * Both ACTIVATE (from background.js toggle) and TRANSLATE_PAGE
+       * (from the popup's "Translate This Page" button) trigger the
+       * same activation flow. The payload may contain settings directly
+       * or nested under payload.settings.
+       */
+      const settings = payload?.settings || message.settings || payload;
+      activate(settings).then(() => {
         sendResponse({ success: true });
       });
       /* Return true because activate() is async */

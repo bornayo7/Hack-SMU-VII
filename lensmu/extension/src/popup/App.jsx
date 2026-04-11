@@ -61,9 +61,10 @@ const DEFAULT_SETTINGS = {
   googleCloudApiKey: "",
   openaiApiKey: "",
   claudeApiKey: "",
+  geminiApiKey: "",
 
-  // LLM model to use when translating with OpenAI or Claude
-  llmModel: "gpt-4",
+  // LLM model to use when translating with OpenAI, Claude, or Gemini
+  llmModel: "gemini-2.0-flash",
 
   // UI preference: light or dark theme
   darkMode: false,
@@ -277,6 +278,8 @@ export default function App() {
             onOpenaiApiKeyChange={(val) => updateSetting("openaiApiKey", val)}
             claudeApiKey={settings.claudeApiKey}
             onClaudeApiKeyChange={(val) => updateSetting("claudeApiKey", val)}
+            geminiApiKey={settings.geminiApiKey}
+            onGeminiApiKeyChange={(val) => updateSetting("geminiApiKey", val)}
             googleCloudApiKey={settings.googleCloudApiKey}
             onGoogleCloudApiKeyChange={(val) =>
               updateSetting("googleCloudApiKey", val)

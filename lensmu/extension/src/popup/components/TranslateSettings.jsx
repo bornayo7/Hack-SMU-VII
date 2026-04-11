@@ -77,6 +77,14 @@ const PROVIDER_OPTIONS = [
     needsModel: true,
   },
   {
+    id: "gemini",
+    name: "Google Gemini",
+    description:
+      "Google's latest LLM. Fast, capable, and cost-effective. Great for manga and general translation.",
+    needsApiKey: "gemini",
+    needsModel: true,
+  },
+  {
     id: "libre",
     name: "LibreTranslate / MyMemory",
     description:
@@ -131,6 +139,28 @@ const MODEL_OPTIONS = {
       description: "Fastest, lightweight tasks",
     },
   ],
+  gemini: [
+    {
+      id: "gemini-2.5-flash",
+      name: "Gemini 2.5 Flash",
+      description: "Latest, fast and smart, recommended",
+    },
+    {
+      id: "gemini-2.0-flash",
+      name: "Gemini 2.0 Flash",
+      description: "Fast and cost-effective",
+    },
+    {
+      id: "gemini-2.5-pro-preview-06-05",
+      name: "Gemini 2.5 Pro",
+      description: "Most capable, slower",
+    },
+    {
+      id: "gemini-1.5-flash",
+      name: "Gemini 1.5 Flash",
+      description: "Lightweight, cheapest option",
+    },
+  ],
 };
 
 export default function TranslateSettings({
@@ -140,6 +170,8 @@ export default function TranslateSettings({
   onOpenaiApiKeyChange,
   claudeApiKey,
   onClaudeApiKeyChange,
+  geminiApiKey,
+  onGeminiApiKeyChange,
   googleCloudApiKey,
   onGoogleCloudApiKeyChange,
   llmModel,
@@ -223,6 +255,24 @@ export default function TranslateSettings({
             value={claudeApiKey}
             onChange={onClaudeApiKeyChange}
           />
+        </div>
+      )}
+
+      {selectedProvider && selectedProvider.needsApiKey === "gemini" && (
+        <div className="conditional-config fade-in">
+          <ApiKeyInput
+            label="Google Gemini API Key"
+            placeholder="AIza..."
+            storageKey="geminiApiKey"
+            value={geminiApiKey}
+            onChange={onGeminiApiKeyChange}
+          />
+          <p className="form-hint">
+            Get your key at{" "}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+              aistudio.google.com/apikey
+            </a>
+          </p>
         </div>
       )}
 

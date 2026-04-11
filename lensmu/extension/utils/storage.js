@@ -108,15 +108,14 @@ const DEFAULT_SETTINGS = {
    * translationProvider: Which translation service to use.
    *
    * Options:
-   *   'local'    — Our local backend server (http://localhost:8000).
-   *                Uses whatever translation engine the backend provides.
+   *   'libre'    — LibreTranslate / MyMemory (free, no API key needed).
    *   'google'   — Google Cloud Translation API (requires API key).
-   *   'deepl'    — DeepL API (requires API key, best quality for European languages).
-   *   'azure'    — Microsoft Azure Translator (requires API key).
+   *   'openai'   — OpenAI GPT translation (requires API key).
+   *   'claude'   — Anthropic Claude translation (requires API key).
    *
-   * Default: 'local' — works out of the box for development.
+   * Default: 'libre' — works out of the box, no setup needed.
    */
-  translationProvider: 'local',
+  translationProvider: 'libre',
 
   /*
    * backendUrl: URL of the local OCR/translation backend server.
