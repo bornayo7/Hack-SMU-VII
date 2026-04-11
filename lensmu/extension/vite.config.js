@@ -73,6 +73,16 @@ function popupConfig() {
     plugins: [react()],
 
     // -----------------------------------------------------------------------
+    // base
+    // -----------------------------------------------------------------------
+    // CRITICAL FOR BROWSER EXTENSIONS: Vite defaults base to "/" which
+    // generates absolute paths like "/popup.js". Extensions load files
+    // relative to the HTML file, so we need "./" to get "./popup.js".
+    // Without this, Chrome can't find the JS/CSS and the popup is blank.
+    // -----------------------------------------------------------------------
+    base: './',
+
+    // -----------------------------------------------------------------------
     // root
     // -----------------------------------------------------------------------
     // Vite uses "root" as the base directory for resolving entry points.
