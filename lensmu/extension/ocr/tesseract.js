@@ -112,6 +112,8 @@ let currentLanguage = null;
  * @throws {Error} If Tesseract.js fails to initialize or the image is invalid
  */
 export async function recognize(imageBase64, sourceLanguage = 'eng') {
+  const language = normalizeTesseractLanguage(sourceLanguage);
+
   // -------------------------------------------------------------------------
   // STEP 1: Initialize (or reinitialize) the Tesseract worker.
   //
@@ -120,7 +122,7 @@ export async function recognize(imageBase64, sourceLanguage = 'eng') {
   // the language changed, because switching languages requires loading new
   // trained data.
   // -------------------------------------------------------------------------
-  await ensureWorkerReady(sourceLanguage);
+  await ensureWorkerReady(language);
 
   // -------------------------------------------------------------------------
   // STEP 2: Perform OCR.
@@ -221,21 +223,21 @@ async function ensureWorkerReady(language) {
     // -------------------------------------------------------------------
     // Load Tesseract.js library.
     //
-    // In a browser extension, we have a few options for loading Tesseract:
+    // In this extension we bundle the Tesseract runtime files locally
+    // (/lib/*.js and /lib/*.wasm) so CSP never has to allow remote scripts.
     //
-    //   Option A: Bundle it with the extension (larger extension size, but
-    //             works offline). Put tesseract.min.js in the /lib folder.
-    //
-    //   Option B: Load from CDN (smaller extension, but needs internet).
-    //             Uses jsDelivr or unpkg CDN URLs.
-    //
-    // We try the bundled version first, then fall back to CDN. This gives
-    // us the best of both worlds.
+    // Language traineddata files are NOT bundled right now. We let the
+    // library use its default remote download path for those files on first
+    // use, which keeps the extension package smaller.
     // -------------------------------------------------------------------
     const Tesseract = await loadTesseractLibrary();
 
     // Create a new worker. The worker runs OCR in a background thread
     // so it doesn't block the UI.
+    //
+    // We must specify workerPath and corePath to point to our bundled files.
+    // Without these, Tesseract.js tries to load from CDN, which is blocked
+    // by the extension's Content Security Policy (script-src 'self').
     worker = await Tesseract.createWorker(language, /* oem (OCR Engine Mode) */ 1, {
       // Logging callback — useful for debugging, shows progress during
       // trained data download and OCR processing.
@@ -246,9 +248,12 @@ async function ensureWorkerReady(language) {
           console.debug(`[Tesseract] ${info.status}: ${Math.round(info.progress * 100)}%`);
         }
       },
-      // Where to find the trained data files. We try the extension's local
-      // /lib folder first, then fall back to the CDN.
-      langPath: getLangDataPath(),
+
+      // Path to the worker script bundled with our extension.
+      workerPath: chrome.runtime.getURL('lib/worker.min.js'),
+
+      // Path to the directory containing the Tesseract WASM core files.
+      corePath: chrome.runtime.getURL('lib/'),
     });
 
     currentLanguage = language;
@@ -286,59 +291,65 @@ async function loadTesseractLibrary() {
     return globalThis.Tesseract;
   }
 
-  // Try to load the bundled version from the extension's /lib directory.
-  // chrome.runtime.getURL() converts a relative extension path to a full
-  // chrome-extension:// URL that can be loaded.
+  // Load the bundled ESM version from the extension's /lib directory.
+  // chrome.runtime.getURL() converts a relative extension path to the full
+  // chrome-extension:// URL that can be imported as an ES module.
+  //
+  // IMPORTANT: We use the ESM build (tesseract.esm.min.js), NOT the UMD build
+  // (tesseract.min.js). Dynamic import() only works with ES modules.
+  //
+  // NOTE: CDN loading is NOT possible in browser extensions because the
+  // Content Security Policy (script-src 'self') blocks external scripts.
+  // The Tesseract.js files MUST be bundled with the extension in /lib/.
   try {
     const bundledModule = await import(
       /* webpackIgnore: true */
-      chrome.runtime.getURL('lib/tesseract.min.js')
+      chrome.runtime.getURL('lib/tesseract.esm.min.js')
     );
     if (bundledModule.default) return bundledModule.default;
     if (bundledModule.createWorker) return bundledModule;
-  } catch (_bundleError) {
-    // Bundled version not found — this is fine, we'll try CDN next.
-    console.info('[Tesseract] Bundled library not found, trying CDN...');
-  }
-
-  // Fall back to loading from CDN.
-  // We use jsDelivr which is a fast, free CDN for npm packages.
-  try {
-    const cdnModule = await import(
-      /* webpackIgnore: true */
-      'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js'
-    );
-    return cdnModule.default || cdnModule;
-  } catch (cdnError) {
+    return bundledModule;
+  } catch (bundleError) {
+    console.error('[Tesseract] Failed to load bundled library:', bundleError);
     throw new Error(
-      'Could not load Tesseract.js library. ' +
-      'Either bundle it in the /lib folder or ensure internet access for CDN loading. ' +
-      `Details: ${cdnError.message}`
+      'Could not load Tesseract.js library from extension bundle. ' +
+      'Make sure the /lib directory contains tesseract.esm.min.js and related files. ' +
+      'Run "npm run copy-tesseract" to copy them from node_modules. ' +
+      `Details: ${bundleError.message}`
     );
   }
 }
 
 
-/**
- * getLangDataPath — Returns the path where Tesseract should look for
- * trained data files.
- *
- * Trained data files are the language-specific ML models that Tesseract
- * uses for recognition. They're named like "eng.traineddata", "jpn.traineddata",
- * etc. The first time a language is used, Tesseract downloads these files.
- *
- * @returns {string} URL path for language data files
- */
-function getLangDataPath() {
-  // Try to use the extension's local /lib/tessdata directory first.
-  // If the user has pre-downloaded the trained data files and placed them
-  // there, Tesseract will use them instead of downloading from the internet.
-  try {
-    return chrome.runtime.getURL('lib/tessdata');
-  } catch (_error) {
-    // If chrome.runtime is not available (e.g., running in tests), use CDN.
-    return 'https://tessdata.projectnaptha.com/4.0.0';
-  }
+function normalizeTesseractLanguage(sourceLanguage) {
+  const language = (sourceLanguage || 'eng').trim();
+
+  /*
+   * The popup uses general UI language codes like "ja" and "auto", while
+   * Tesseract expects traineddata identifiers such as "jpn" and "chi_sim".
+   * Accept both forms here so callers do not need to know Tesseract internals.
+   */
+  const languageMap = {
+    auto: 'eng+jpn',
+    en: 'eng',
+    ja: 'jpn',
+    zh: 'chi_sim',
+    'zh-CN': 'chi_sim',
+    'zh-TW': 'chi_tra',
+    ko: 'kor',
+    es: 'spa',
+    fr: 'fra',
+    de: 'deu',
+    pt: 'por',
+    ru: 'rus',
+    ar: 'ara',
+    hi: 'hin',
+    th: 'tha',
+    vi: 'vie',
+    it: 'ita',
+  };
+
+  return languageMap[language] || language;
 }
 
 

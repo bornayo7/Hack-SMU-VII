@@ -144,100 +144,40 @@ const translateIcons = new Set();
 
 /*
  * --------------------------------------------------------------------------
- * Client-Side OCR with Tesseract.js
+ * OCR Compatibility Helpers
  * --------------------------------------------------------------------------
- * Runs OCR entirely in the browser using Tesseract.js (WebAssembly).
- * No server needed. This is the default/fallback OCR engine.
- *
- * Tesseract.js is loaded dynamically via a CDN. On first call it downloads
- * the WASM binary and trained data (~15 MB total), which is cached by the
- * browser for subsequent runs.
- *
- * @param {string} imageBase64 — Data URL (data:image/png;base64,...) or raw base64
- * @returns {Promise<Array>}   — Array of {text, confidence, bbox: {x,y,width,height}}
+ * OCR now runs in the background worker by default. We keep a compatibility
+ * fallback here for stale service workers that still respond with the older
+ * `useClientOCR` flag. Unlike the legacy implementation, this uses the
+ * extension-bundled Tesseract module rather than injecting a blocked CDN
+ * script into the page context.
  */
-let tesseractWorker = null;
-
-async function runTesseractOCR(imageBase64) {
-  /*
-   * Lazy-load Tesseract.js from CDN if not already loaded.
-   * We inject a <script> tag into the page to load it.
-   */
-  if (typeof Tesseract === 'undefined') {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-      script.onload = resolve;
-      script.onerror = () => reject(new Error('Failed to load Tesseract.js from CDN'));
-      document.head.appendChild(script);
-    });
+function stripDataUrlPrefix(imageBase64) {
+  if (!imageBase64 || !imageBase64.startsWith('data:')) {
+    return imageBase64;
   }
 
-  /*
-   * Create a Tesseract worker (reuse across calls).
-   * The worker runs in a Web Worker thread so it doesn't block the UI.
-   * We default to English + Japanese recognition.
-   */
-  if (!tesseractWorker) {
-    const lang = currentSettings.sourceLanguage || 'eng';
-    /* Map ISO 639-1 codes to Tesseract's 3-letter codes */
-    const langMap = {
-      'auto': 'eng+jpn', 'en': 'eng', 'ja': 'jpn', 'zh': 'chi_sim',
-      'zh-TW': 'chi_tra', 'ko': 'kor', 'es': 'spa', 'fr': 'fra',
-      'de': 'deu', 'pt': 'por', 'ru': 'rus', 'ar': 'ara',
-      'hi': 'hin', 'th': 'tha', 'vi': 'vie', 'it': 'ita'
-    };
-    const tessLang = langMap[lang] || 'eng+jpn';
+  const commaIndex = imageBase64.indexOf(',');
+  return commaIndex === -1 ? imageBase64 : imageBase64.slice(commaIndex + 1);
+}
 
-    tesseractWorker = await Tesseract.createWorker(tessLang, 1, {
-      logger: m => {
-        if (m.status === 'recognizing text') {
-          updateToolbarStatus(`OCR: ${Math.round(m.progress * 100)}%`);
-        }
-      }
-    });
-  }
+async function runBundledTesseractOCR(imageBase64) {
+  const { recognize } = await import(chrome.runtime.getURL('ocr/tesseract.js'));
+  const results = await recognize(
+    stripDataUrlPrefix(imageBase64),
+    currentSettings.sourceLanguage || 'auto'
+  );
 
-  /* Run recognition */
-  const result = await tesseractWorker.recognize(imageBase64);
-
-  /* Convert Tesseract output to our standard format */
-  const blocks = [];
-  for (const word of (result.data.words || [])) {
-    if (word.text.trim().length === 0) continue;
-    blocks.push({
-      text: word.text,
-      confidence: word.confidence / 100, /* Tesseract uses 0-100, we use 0-1 */
-      bbox: {
-        x: word.bbox.x0,
-        y: word.bbox.y0,
-        width: word.bbox.x1 - word.bbox.x0,
-        height: word.bbox.y1 - word.bbox.y0
-      }
-    });
-  }
-
-  /*
-   * Merge individual words into lines for better translation.
-   * Tesseract returns word-by-word results, but we want line-level
-   * blocks for translation context and overlay rendering.
-   */
-  const lines = [];
-  for (const line of (result.data.lines || [])) {
-    if (line.text.trim().length === 0) continue;
-    lines.push({
-      text: line.text.trim(),
-      confidence: line.confidence / 100,
-      bbox: {
-        x: line.bbox.x0,
-        y: line.bbox.y0,
-        width: line.bbox.x1 - line.bbox.x0,
-        height: line.bbox.y1 - line.bbox.y0
-      }
-    });
-  }
-
-  return lines.length > 0 ? lines : blocks;
+  return results.map((block) => ({
+    text: block.text,
+    confidence: block.confidence,
+    bbox: {
+      x: block.bbox[0],
+      y: block.bbox[1],
+      width: block.bbox[2] - block.bbox[0],
+      height: block.bbox[3] - block.bbox[1]
+    }
+  }));
 }
 
 function imageToBase64(imageElement) {
@@ -305,16 +245,46 @@ function imageToBase64(imageElement) {
      * This is a browser security feature we cannot bypass. We'll try
      * an alternative approach using the image URL directly.
      */
-    if (error.name === 'SecurityError') {
-      console.warn(
-        '[VisionTranslate] Cannot convert cross-origin image to base64.',
-        'Image src:', imageElement.src?.substring(0, 100)
-      );
-    } else {
+    if (error.name !== 'SecurityError') {
       console.error('[VisionTranslate] imageToBase64 error:', error);
     }
     return null;
   }
+}
+
+function isCrossOriginHttpUrl(url) {
+  if (!url) return false;
+
+  try {
+    const parsedUrl = new URL(url, window.location.href);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return false;
+    }
+    return parsedUrl.origin !== window.location.origin;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function fetchImageViaBackground(url) {
+  if (!url) return null;
+
+  try {
+    const fetchResponse = await chrome.runtime.sendMessage({
+      action: 'FETCH_IMAGE',
+      payload: { url }
+    });
+
+    if (fetchResponse?.ok && fetchResponse.dataUrl) {
+      return fetchResponse.dataUrl;
+    }
+
+    console.warn('[VisionTranslate] Background fetch failed:', fetchResponse?.error || 'Unknown error');
+  } catch (fetchError) {
+    console.warn('[VisionTranslate] Background fetch error:', fetchError.message);
+  }
+
+  return null;
 }
 
 /*
@@ -453,7 +423,7 @@ function scanForImages() {
     results.push({
       element: img,
       type: 'img',
-      url: img.src
+      url: img.currentSrc || img.src
     });
   }
 
@@ -686,6 +656,7 @@ async function processImage(imageInfo) {
      *   - background-image: Load the URL into a new Image, then convert
      */
     let imageBase64 = null;
+    const prefersBackgroundFetch = isCrossOriginHttpUrl(url);
 
     if (type === 'canvas') {
       /* Canvas elements can be exported directly */
@@ -695,6 +666,13 @@ async function processImage(imageInfo) {
         console.warn('[VisionTranslate] Cannot export canvas (tainted):', e.message);
         return;
       }
+    } else if (prefersBackgroundFetch) {
+      /*
+       * Cross-origin images frequently taint the canvas in content-script
+       * context. Fetch them via the background worker first to avoid noisy
+       * SecurityError logs and to make the OCR path work on image CDNs.
+       */
+      imageBase64 = await fetchImageViaBackground(url);
     } else if (type === 'background') {
       /*
        * For background images, we need to load the URL into a new Image
@@ -705,16 +683,30 @@ async function processImage(imageInfo) {
         const loadedImg = await loadImage(url);
         imageBase64 = imageToBase64(loadedImg);
       } catch (e) {
-        console.warn('[VisionTranslate] Could not load background image:', url?.substring(0, 80));
-        return;
+        console.warn('[VisionTranslate] Could not load background image via CORS, trying background fetch:', url?.substring(0, 80));
+        /* imageBase64 stays null — the CORS fallback below will handle it */
       }
     } else {
       /* Regular <img> element */
       imageBase64 = imageToBase64(element);
     }
 
+    /*
+     * CORS FALLBACK: If direct canvas conversion failed (returned null),
+     * and we have an image URL, ask the background service worker to
+     * fetch the image for us. The background worker has host_permissions
+     * that bypass CORS restrictions, so it can fetch any image URL.
+     */
+    if (!imageBase64 && url) {
+      console.log('[VisionTranslate] Attempting background fetch for image:', url.substring(0, 80));
+      imageBase64 = await fetchImageViaBackground(url);
+      if (imageBase64) {
+        console.log('[VisionTranslate] Successfully fetched image via background proxy');
+      }
+    }
+
     if (!imageBase64) {
-      console.warn('[VisionTranslate] Failed to convert image to base64. Skipping.');
+      console.warn('[VisionTranslate] Failed to convert image to base64 (even after background fetch). Skipping.');
       return;
     }
 
@@ -758,17 +750,15 @@ async function processImage(imageInfo) {
      * we run it right here in the content script. Tesseract.js is loaded
      * from the extension bundle and runs entirely in the browser via WASM.
      */
-    let ocrResults;
+    let ocrResults = ocrResponse.body?.blocks || [];
     if (ocrResponse.body?.useClientOCR) {
-      console.log('[VisionTranslate] Using client-side Tesseract.js OCR');
+      console.warn('[VisionTranslate] Received deprecated client-side OCR response, using bundled compatibility path.');
       try {
-        ocrResults = await runTesseractOCR(imageBase64);
+        ocrResults = await runBundledTesseractOCR(imageBase64);
       } catch (tessError) {
-        console.warn('[VisionTranslate] Tesseract.js OCR failed:', tessError.message);
+        console.warn('[VisionTranslate] Bundled Tesseract.js OCR failed:', tessError.message);
         return;
       }
-    } else {
-      ocrResults = ocrResponse.body?.blocks || [];
     }
 
     /* If no text was found in the image, skip it */
