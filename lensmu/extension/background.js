@@ -590,28 +590,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           } else {
             /*
-             * Tesseract.js (default): runs client-side via our ocr-manager.
-             * Uses WebAssembly (WASM) bundled with the extension in /lib/.
-             * No server or API key needed.
+             * Tesseract.js (default): must run in the CONTENT SCRIPT, not here.
+             * Service workers cannot use import() or WebAssembly the way
+             * Tesseract.js needs. We send a signal back to the content script
+             * telling it to handle OCR client-side.
              */
-            const blocks = await performOCR(payload.imageBase64, 'tesseract', {
-              sourceLanguage: payload.sourceLang || 'eng',
-              backendUrl: backendUrl,
+            sendResponse({
+              ok: true,
+              body: { useClientOCR: true, engine: 'tesseract' }
             });
-
-            ocrResult = {
-              blocks: blocks.map(b => ({
-                text: b.text,
-                confidence: b.confidence,
-                bbox: {
-                  x: b.bbox[0],
-                  y: b.bbox[1],
-                  width: b.bbox[2] - b.bbox[0],
-                  height: b.bbox[3] - b.bbox[1]
-                }
-              })),
-              source_lang: payload.sourceLang || 'auto'
-            };
+            break;
           }
 
           sendResponse({ ok: true, body: ocrResult });
