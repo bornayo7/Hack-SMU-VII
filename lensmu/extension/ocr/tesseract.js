@@ -236,6 +236,10 @@ async function ensureWorkerReady(language) {
 
     // Create a new worker. The worker runs OCR in a background thread
     // so it doesn't block the UI.
+    //
+    // We must specify workerPath and corePath to point to our bundled files.
+    // Without these, Tesseract.js tries to load from CDN, which is blocked
+    // by the extension's Content Security Policy (script-src 'self').
     worker = await Tesseract.createWorker(language, /* oem (OCR Engine Mode) */ 1, {
       // Logging callback — useful for debugging, shows progress during
       // trained data download and OCR processing.
@@ -246,8 +250,14 @@ async function ensureWorkerReady(language) {
           console.debug(`[Tesseract] ${info.status}: ${Math.round(info.progress * 100)}%`);
         }
       },
-      // Where to find the trained data files. We try the extension's local
-      // /lib folder first, then fall back to the CDN.
+
+      // Path to the worker script bundled with our extension.
+      workerPath: chrome.runtime.getURL('lib/worker.min.js'),
+
+      // Path to the directory containing the Tesseract WASM core files.
+      corePath: chrome.runtime.getURL('lib/'),
+
+      // Where to find the trained data files (language models).
       langPath: getLangDataPath(),
     });
 
@@ -286,34 +296,31 @@ async function loadTesseractLibrary() {
     return globalThis.Tesseract;
   }
 
-  // Try to load the bundled version from the extension's /lib directory.
-  // chrome.runtime.getURL() converts a relative extension path to a full
-  // chrome-extension:// URL that can be loaded.
+  // Load the bundled ESM version from the extension's /lib directory.
+  // chrome.runtime.getURL() converts a relative extension path to the full
+  // chrome-extension:// URL that can be imported as an ES module.
+  //
+  // IMPORTANT: We use the ESM build (tesseract.esm.min.js), NOT the UMD build
+  // (tesseract.min.js). Dynamic import() only works with ES modules.
+  //
+  // NOTE: CDN loading is NOT possible in browser extensions because the
+  // Content Security Policy (script-src 'self') blocks external scripts.
+  // The Tesseract.js files MUST be bundled with the extension in /lib/.
   try {
     const bundledModule = await import(
       /* webpackIgnore: true */
-      chrome.runtime.getURL('lib/tesseract.min.js')
+      chrome.runtime.getURL('lib/tesseract.esm.min.js')
     );
     if (bundledModule.default) return bundledModule.default;
     if (bundledModule.createWorker) return bundledModule;
-  } catch (_bundleError) {
-    // Bundled version not found — this is fine, we'll try CDN next.
-    console.info('[Tesseract] Bundled library not found, trying CDN...');
-  }
-
-  // Fall back to loading from CDN.
-  // We use jsDelivr which is a fast, free CDN for npm packages.
-  try {
-    const cdnModule = await import(
-      /* webpackIgnore: true */
-      'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js'
-    );
-    return cdnModule.default || cdnModule;
-  } catch (cdnError) {
+    return bundledModule;
+  } catch (bundleError) {
+    console.error('[Tesseract] Failed to load bundled library:', bundleError);
     throw new Error(
-      'Could not load Tesseract.js library. ' +
-      'Either bundle it in the /lib folder or ensure internet access for CDN loading. ' +
-      `Details: ${cdnError.message}`
+      'Could not load Tesseract.js library from extension bundle. ' +
+      'Make sure the /lib directory contains tesseract.esm.min.js and related files. ' +
+      'Run "npm run copy-tesseract" to copy them from node_modules. ' +
+      `Details: ${bundleError.message}`
     );
   }
 }

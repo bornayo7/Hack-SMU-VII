@@ -12,7 +12,9 @@
     "watch": "concurrently --names popup,overlay --prefix-colors blue,green \"BUILD_TARGET=popup vite build --watch\" \"BUILD_TARGET=overlay vite build --watch\"",
     "watch:popup": "BUILD_TARGET=popup vite build --watch",
     "watch:overlay": "BUILD_TARGET=overlay vite build --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "copy-tesseract": "mkdir -p lib && cp node_modules/tesseract.js/dist/tesseract.esm.min.js node_modules/tesseract.js/dist/worker.min.js lib/ && cp node_modules/tesseract.js-core/tesseract-core*.wasm node_modules/tesseract.js-core/tesseract-core*.wasm.js lib/",
+    "postinstall": "npm run copy-tesseract"
   },
   "dependencies": {
     "react": "^18.2.0",

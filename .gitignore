@@ -11,6 +11,9 @@ venv/
 # Build output (rebuilt with npm run build)
 lensmu/extension/dist/
 
+# Bundled Tesseract.js files (rebuilt with npm run copy-tesseract / postinstall)
+lensmu/extension/lib/
+
 # IDE
 .vscode/
 .idea/

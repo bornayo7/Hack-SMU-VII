@@ -26,6 +26,7 @@
   ],
 
   "host_permissions": [
+    "<all_urls>",
     "http://localhost:8000/*",
     "https://translation.googleapis.com/*",
     "https://api.openai.com/*",
@@ -84,14 +85,16 @@
         "icons/*",
         "overlay.js",
         "utils/*",
-        "dist/*"
+        "dist/*",
+        "lib/*",
+        "ocr/*"
       ],
       "matches": ["<all_urls>"]
     }
   ],
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
 
   "minimum_chrome_version": "96"

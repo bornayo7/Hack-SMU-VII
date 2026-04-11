@@ -62,6 +62,7 @@
  */
 import { getSettings, saveSettings } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
+import { performOCR } from './ocr/ocr-manager.js';
 
 /*
  * --------------------------------------------------------------------------
@@ -589,17 +590,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           } else {
             /*
-             * Tesseract.js (default): runs client-side in the content script.
-             * We tell the content script to handle OCR itself. The content script
-             * will use the tesseract.js library loaded in the page.
-             * For now, return a special response that tells content.js to use
-             * client-side OCR.
+             * Tesseract.js (default): runs client-side via our ocr-manager.
+             * Uses WebAssembly (WASM) bundled with the extension in /lib/.
+             * No server or API key needed.
              */
-            sendResponse({
-              ok: true,
-              body: { useClientOCR: true, engine: 'tesseract' }
+            const blocks = await performOCR(payload.imageBase64, 'tesseract', {
+              sourceLanguage: payload.sourceLang || 'eng',
+              backendUrl: backendUrl,
             });
-            break;
+
+            ocrResult = {
+              blocks: blocks.map(b => ({
+                text: b.text,
+                confidence: b.confidence,
+                bbox: {
+                  x: b.bbox[0],
+                  y: b.bbox[1],
+                  width: b.bbox[2] - b.bbox[0],
+                  height: b.bbox[3] - b.bbox[1]
+                }
+              })),
+              source_lang: payload.sourceLang || 'auto'
+            };
           }
 
           sendResponse({ ok: true, body: ocrResult });
@@ -686,6 +698,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           persistTabStates();
           sendResponse({ success: true });
+        }
+        break;
+      }
+
+      /*
+       * ---- FETCH_IMAGE ----
+       * Sent by the content script when it cannot convert a cross-origin
+       * image to base64 (canvas tainting due to CORS). The background
+       * service worker fetches the image bytes directly (it has
+       * host_permissions that bypass CORS), converts to a base64 data URL,
+       * and returns it.
+       */
+      case 'FETCH_IMAGE': {
+        const { url } = payload;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            sendResponse({ ok: false, error: `HTTP ${response.status}` });
+            break;
+          }
+
+          const arrayBuffer = await response.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+
+          let binary = '';
+          const chunkSize = 8192;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk);
+          }
+          const base64 = btoa(binary);
+
+          const contentType = response.headers.get('content-type') || 'image/png';
+          const dataUrl = `data:${contentType};base64,${base64}`;
+
+          sendResponse({ ok: true, dataUrl });
+        } catch (error) {
+          console.error('[VisionTranslate] FETCH_IMAGE error:', error);
+          sendResponse({ ok: false, error: error.message });
         }
         break;
       }

@@ -705,16 +705,41 @@ async function processImage(imageInfo) {
         const loadedImg = await loadImage(url);
         imageBase64 = imageToBase64(loadedImg);
       } catch (e) {
-        console.warn('[VisionTranslate] Could not load background image:', url?.substring(0, 80));
-        return;
+        console.warn('[VisionTranslate] Could not load background image via CORS, trying background fetch:', url?.substring(0, 80));
+        /* imageBase64 stays null — the CORS fallback below will handle it */
       }
     } else {
       /* Regular <img> element */
       imageBase64 = imageToBase64(element);
     }
 
+    /*
+     * CORS FALLBACK: If direct canvas conversion failed (returned null),
+     * and we have an image URL, ask the background service worker to
+     * fetch the image for us. The background worker has host_permissions
+     * that bypass CORS restrictions, so it can fetch any image URL.
+     */
+    if (!imageBase64 && url) {
+      console.log('[VisionTranslate] Attempting background fetch for cross-origin image:', url.substring(0, 80));
+      try {
+        const fetchResponse = await chrome.runtime.sendMessage({
+          action: 'FETCH_IMAGE',
+          payload: { url }
+        });
+
+        if (fetchResponse && fetchResponse.ok && fetchResponse.dataUrl) {
+          imageBase64 = fetchResponse.dataUrl;
+          console.log('[VisionTranslate] Successfully fetched image via background proxy');
+        } else {
+          console.warn('[VisionTranslate] Background fetch failed:', fetchResponse?.error || 'Unknown error');
+        }
+      } catch (fetchError) {
+        console.warn('[VisionTranslate] Background fetch error:', fetchError.message);
+      }
+    }
+
     if (!imageBase64) {
-      console.warn('[VisionTranslate] Failed to convert image to base64. Skipping.');
+      console.warn('[VisionTranslate] Failed to convert image to base64 (even after background fetch). Skipping.');
       return;
     }
 
