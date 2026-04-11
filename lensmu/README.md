@@ -364,7 +364,7 @@ development.
    ```bash
    cd lensmu/backend
    source venv/bin/activate
-   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   uvicorn server:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 2. **Click the VisionTranslate icon** in your browser toolbar.
@@ -425,7 +425,7 @@ embedded Japanese text that VisionTranslate can process.
 
 ### Backend won't start
 
-**Symptom:** `uvicorn main:app` gives an error or crashes immediately.
+**Symptom:** `uvicorn server:app` gives an error or crashes immediately.
 
 **Possible fixes:**
 
@@ -442,7 +442,7 @@ embedded Japanese text that VisionTranslate can process.
 3. **Port 8000 already in use.** Another program is using port 8000. Either
    stop that program or use a different port:
    ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+   uvicorn server:app --host 0.0.0.0 --port 8001 --reload
    ```
    If you change the port, you'll also need to update the backend URL in the
    extension popup settings.
@@ -556,7 +556,7 @@ These settings are available in the extension popup:
 ```
 lensmu/
   backend/                    # Python FastAPI server
-    main.py                   # Server entry point, API routes
+    server.py                  # Server entry point, API routes
     ocr_engines/              # OCR engine wrappers
       __init__.py
       paddleocr_engine.py     # PaddleOCR wrapper
@@ -609,7 +609,7 @@ When actively developing, use the watch mode to auto-rebuild on changes:
 # Terminal 1: backend
 cd lensmu/backend
 source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 2: extension build watcher
 cd lensmu/extension
