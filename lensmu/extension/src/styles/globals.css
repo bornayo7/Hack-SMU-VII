@@ -1,0 +1,1042 @@
+/*
+ * globals.css — Complete stylesheet for VisionTranslate (lensmu).
+ *
+ * STRUCTURE:
+ *   1. CSS Custom Properties (variables) for light and dark themes
+ *   2. Base / Reset styles
+ *   3. Popup container and layout
+ *   4. Header and status indicator
+ *   5. Settings sections
+ *   6. Form controls (inputs, selects, radio buttons)
+ *   7. API Key input component
+ *   8. Language selector
+ *   9. Buttons
+ *  10. Overlay toolbar (in-page floating bar)
+ *  11. Translation tooltip
+ *  12. Utility classes
+ *  13. Animations and keyframes
+ *  14. Scrollbar styling
+ *
+ * THEMING APPROACH:
+ * We use CSS custom properties (variables) on :root for the light theme
+ * and override them on :root.dark for the dark theme. All component styles
+ * reference these variables, so switching themes is as simple as toggling
+ * the "dark" class on the <html> element — which App.jsx does.
+ */
+
+
+/* =====================================================================
+   1. CSS CUSTOM PROPERTIES — LIGHT THEME (default)
+   ===================================================================== */
+
+:root {
+  /* ── Surface colors ─────────────────────────────────────────────── */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f7f8fa;
+  --color-bg-tertiary: #eef0f4;
+  --color-bg-hover: #e8eaf0;
+
+  /* ── Text colors ────────────────────────────────────────────────── */
+  --color-text-primary: #1a1d23;
+  --color-text-secondary: #5a6070;
+  --color-text-tertiary: #8890a0;
+  --color-text-inverse: #ffffff;
+
+  /* ── Border colors ──────────────────────────────────────────────── */
+  --color-border: #d8dce6;
+  --color-border-focus: #4f6ef7;
+  --color-border-subtle: #e8eaf0;
+
+  /* ── Accent / brand colors ──────────────────────────────────────── */
+  --color-accent: #4f6ef7;
+  --color-accent-hover: #3d5be5;
+  --color-accent-light: #eef1fe;
+  --color-accent-text: #ffffff;
+
+  /* ── Status colors ──────────────────────────────────────────────── */
+  --color-success: #22c55e;
+  --color-success-bg: #f0fdf4;
+  --color-warning: #eab308;
+  --color-warning-bg: #fefce8;
+  --color-error: #ef4444;
+  --color-error-bg: #fef2f2;
+
+  /* ── Confidence level colors (for tooltip) ──────────────────────── */
+  --color-confidence-high: #22c55e;
+  --color-confidence-medium: #eab308;
+  --color-confidence-low: #ef4444;
+
+  /* ── Shadows ────────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.18);
+
+  /* ── Spacing scale ──────────────────────────────────────────────── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+
+  /* ── Border radius ──────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ── Typography ─────────────────────────────────────────────────── */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 15px;
+  --font-size-xl: 18px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* ── Transitions ────────────────────────────────────────────────── */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+}
+
+
+/* =====================================================================
+   1b. CSS CUSTOM PROPERTIES — DARK THEME
+   Toggled by adding class="dark" to the <html> element.
+   ===================================================================== */
+
+:root.dark {
+  --color-bg-primary: #16181d;
+  --color-bg-secondary: #1e2028;
+  --color-bg-tertiary: #262830;
+  --color-bg-hover: #2e3038;
+
+  --color-text-primary: #e8eaf0;
+  --color-text-secondary: #a0a8b8;
+  --color-text-tertiary: #687080;
+  --color-text-inverse: #16181d;
+
+  --color-border: #363840;
+  --color-border-focus: #6b85f9;
+  --color-border-subtle: #2a2c34;
+
+  --color-accent: #6b85f9;
+  --color-accent-hover: #8da0fb;
+  --color-accent-light: #1e2438;
+  --color-accent-text: #16181d;
+
+  --color-success-bg: #0a2a14;
+  --color-warning-bg: #2a2408;
+  --color-error-bg: #2a0a0a;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+
+/* =====================================================================
+   2. BASE / RESET STYLES
+   ===================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+
+/* =====================================================================
+   3. POPUP CONTAINER AND LAYOUT
+   ===================================================================== */
+
+/*
+ * The popup is structured as a flex column:
+ *   header  — fixed at top (title, dark mode toggle, status)
+ *   content — scrollable middle (all settings sections)
+ *   footer  — fixed at bottom ("Translate This Page" button)
+ */
+.popup-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  max-height: 600px;
+  background-color: var(--color-bg-primary);
+}
+
+.popup-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  min-height: 200px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+
+/* =====================================================================
+   4. HEADER AND STATUS INDICATOR
+   ===================================================================== */
+
+.popup-header {
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: var(--color-bg-primary);
+  /* Sticky header so it stays visible while scrolling settings */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.popup-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.popup-title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+}
+
+/* Dark mode toggle button in the header */
+.dark-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dark-mode-toggle:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-focus);
+}
+
+/* Server status indicator (dot + text) */
+.server-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status-dot.status-online {
+  background-color: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+}
+
+.status-dot.status-offline {
+  background-color: var(--color-error);
+  box-shadow: 0 0 6px var(--color-error);
+}
+
+.status-dot.status-checking {
+  background-color: var(--color-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+
+/* =====================================================================
+   5. SETTINGS SECTIONS
+   ===================================================================== */
+
+.popup-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.settings-section {
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-xl);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Remove border on the last section */
+.settings-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-md);
+}
+
+
+/* =====================================================================
+   6. FORM CONTROLS
+   ===================================================================== */
+
+.form-group {
+  margin-bottom: var(--space-md);
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+/* Text and URL inputs */
+.form-input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-family: var(--font-family);
+  transition: border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.form-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* Dropdown selects */
+.form-select {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  padding-right: 32px; /* Space for the dropdown arrow */
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-family: var(--font-family);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+  /* Custom arrow indicator */
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235a6070' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.form-select:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+/* Hint text below form controls */
+.form-hint {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+/* Radio button group container */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* Individual radio option: acts as a clickable card */
+.radio-option {
+  display: block;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.radio-option:hover {
+  border-color: var(--color-accent);
+  background-color: var(--color-bg-hover);
+}
+
+.radio-option--selected {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-light);
+}
+
+.radio-option-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Hide the native radio circle and use the card highlight instead */
+.radio-input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.radio-label {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.radio-description {
+  margin-top: var(--space-xs);
+  margin-left: 22px; /* Align with the label text (past the radio circle) */
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+/* Badge showing engine type (Server, Local, Cloud) */
+.engine-badge {
+  display: inline-block;
+  padding: 1px var(--space-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.6;
+  margin-left: auto; /* Push to the right side */
+}
+
+.engine-badge--server {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.engine-badge--client {
+  background-color: #d1fae5;
+  color: #047857;
+}
+
+.engine-badge--cloud {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+/* Dark mode overrides for badges */
+:root.dark .engine-badge--server {
+  background-color: #1e2d4a;
+  color: #7da8f7;
+}
+
+:root.dark .engine-badge--client {
+  background-color: #0a2a1a;
+  color: #5dd3a0;
+}
+
+:root.dark .engine-badge--cloud {
+  background-color: #2a2008;
+  color: #e0b040;
+}
+
+/* Container for conditional config that appears below a selection */
+.conditional-config {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-subtle);
+}
+
+
+/* =====================================================================
+   7. API KEY INPUT COMPONENT
+   ===================================================================== */
+
+.api-key-input {
+  margin-bottom: var(--space-md);
+}
+
+.api-key-input:last-child {
+  margin-bottom: 0;
+}
+
+.api-key-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xs);
+}
+
+.api-key-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.api-key-saved {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-success);
+  animation: fadeInSlide 0.2s ease;
+}
+
+/* Wrapper for the input + show/hide button */
+.api-key-field {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.api-key-field:focus-within {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+.api-key-input-field {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-family: var(--font-family);
+  outline: none;
+}
+
+.api-key-input-field::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.api-key-toggle {
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-left: 1px solid var(--color-border);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+    color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.api-key-toggle:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.api-key-preview {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+
+/* =====================================================================
+   8. LANGUAGE SELECTOR
+   ===================================================================== */
+
+.language-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.language-swap-container {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-xs) 0;
+}
+
+.language-swap-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.language-swap-button:hover:not(:disabled) {
+  background-color: var(--color-accent-light);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.language-swap-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+
+/* =====================================================================
+   9. BUTTONS
+   ===================================================================== */
+
+.popup-footer {
+  padding: var(--space-md) var(--space-xl) var(--space-lg);
+  border-top: 1px solid var(--color-border-subtle);
+  background-color: var(--color-bg-primary);
+  position: sticky;
+  bottom: 0;
+}
+
+/* Primary action button — "Translate This Page" */
+.translate-button {
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  border: none;
+  border-radius: var(--radius-lg);
+  background-color: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+    transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.translate-button:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.translate-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.translate-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+
+/* =====================================================================
+   10. OVERLAY TOOLBAR — Floating bar on the web page
+   ===================================================================== */
+
+/*
+ * These styles are used inside the Shadow DOM, so they won't conflict
+ * with the host page's styles. However, they are defined here for
+ * central management and are injected into the shadow root at runtime.
+ */
+
+.overlay-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  user-select: none;
+  animation: slideInUp 0.3s ease;
+}
+
+.overlay-toolbar--minimized {
+  padding: var(--space-xs);
+  border-radius: var(--radius-full);
+  animation: slideInUp 0.3s ease;
+}
+
+/* Drag handle: the six-dot area on the left */
+.toolbar-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  padding: var(--space-xs) 0;
+  cursor: grab;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-lg);
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.toolbar-drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-dots {
+  opacity: 0.5;
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Status area in the middle of the toolbar */
+.toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+  min-width: 0; /* Allow text truncation */
+}
+
+.toolbar-status-text {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Small spinning indicator during translation */
+.toolbar-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Toolbar action buttons */
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.toolbar-button:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-focus);
+}
+
+.toolbar-button--active {
+  background-color: var(--color-accent-light);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.toolbar-button--minimize {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-md);
+  line-height: 1;
+}
+
+.toolbar-button--close {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-md);
+  line-height: 1;
+}
+
+.toolbar-button--close:hover {
+  background-color: var(--color-error-bg);
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+/* Expand button when toolbar is minimized */
+.toolbar-expand-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toolbar-expand-button:hover {
+  background-color: var(--color-accent-hover);
+  transform: scale(1.08);
+  box-shadow: var(--shadow-md);
+}
+
+.toolbar-icon-text {
+  letter-spacing: -0.5px;
+}
+
+
+/* =====================================================================
+   11. TRANSLATION TOOLTIP
+   ===================================================================== */
+
+.translation-tooltip {
+  max-width: 320px;
+  min-width: 180px;
+  padding: var(--space-md);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-family);
+  color: var(--color-text-primary);
+  animation: tooltipFadeIn 0.15s ease;
+}
+
+.tooltip-section {
+  margin-bottom: var(--space-sm);
+}
+
+.tooltip-section:last-of-type {
+  margin-bottom: var(--space-sm);
+}
+
+.tooltip-section-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.tooltip-original-text {
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.tooltip-translated-text {
+  font-size: var(--font-size-md);
+  color: var(--color-accent);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* Metadata row at the bottom of the tooltip */
+.tooltip-meta {
+  display: flex;
+  align-items: center;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.tooltip-language {
+  color: var(--color-text-tertiary);
+}
+
+.tooltip-separator {
+  margin: 0 var(--space-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* Confidence colors */
+.tooltip-confidence {
+  font-weight: var(--font-weight-medium);
+}
+
+.confidence--high {
+  color: var(--color-confidence-high);
+}
+
+.confidence--medium {
+  color: var(--color-confidence-medium);
+}
+
+.confidence--low {
+  color: var(--color-confidence-low);
+}
+
+
+/* =====================================================================
+   12. UTILITY CLASSES
+   ===================================================================== */
+
+/* Loading spinner (used in popup loading state) */
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  animation: spin 0.8s linear infinite;
+}
+
+
+/* =====================================================================
+   13. ANIMATIONS AND KEYFRAMES
+   ===================================================================== */
+
+/* Smooth fade-in with a slight upward slide */
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Simple fade-in */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Fade-out */
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Slide in from below (used for the overlay toolbar) */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tooltip-specific fade-in (faster, no slide) */
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Pulsing animation for the "checking" status dot */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Rotation for spinner elements */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Fade-in class for conditional config sections */
+.fade-in {
+  animation: fadeInSlide 0.2s ease;
+}
+
+
+/* =====================================================================
+   14. SCROLLBAR STYLING
+   For a polished look, we style the scrollbar in the popup.
+   Only applies to WebKit-based browsers (Chrome, Edge, Safari).
+   ===================================================================== */
+
+.popup-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.popup-content::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+.popup-content::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+.popup-content::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-tertiary);
+}
+
+
+/* =====================================================================
+   15. DARK MODE SELECT ARROW OVERRIDE
+   The SVG arrow in <select> elements uses a hardcoded fill color.
+   We override it for dark mode so it remains visible.
+   ===================================================================== */
+
+:root.dark .form-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a0a8b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+}
