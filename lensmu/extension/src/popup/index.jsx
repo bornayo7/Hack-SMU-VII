@@ -18,6 +18,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import "../styles/globals.css";
 
 // Grab the mount point from popup.html
@@ -27,9 +28,11 @@ const container = document.getElementById("root");
 // The older ReactDOM.render() still works but is considered legacy.
 const root = createRoot(container);
 
-// Render the app inside StrictMode for extra development checks.
+// Render the app inside StrictMode with an ErrorBoundary to catch crashes.
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );
