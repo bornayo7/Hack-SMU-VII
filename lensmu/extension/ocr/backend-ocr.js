@@ -112,11 +112,11 @@ export async function recognizePaddle(imageBase64, backendUrl = 'http://localhos
   // STEP 1: Build the API endpoint URL.
   //
   // Our FastAPI backend exposes these PaddleOCR endpoints:
-  //   POST /api/ocr/paddle — Full OCR (detect + recognize)
+  //   POST /ocr/paddle — Full OCR (detect + recognize)
   //
   // The request body is JSON with the Base64 image data.
   // -------------------------------------------------------------------------
-  const endpoint = `${backendUrl}/api/ocr/paddle`;
+  const endpoint = `${backendUrl}/ocr/paddle`;
 
   // -------------------------------------------------------------------------
   // STEP 2: Send the request to the backend.
@@ -184,9 +184,9 @@ export async function recognizeManga(imageBase64, bboxes = [], backendUrl = 'htt
   // STEP 1: Build the API endpoint URL.
   //
   // Our FastAPI backend exposes this Manga OCR endpoint:
-  //   POST /api/ocr/manga — Manga-specialized recognition
+  //   POST /ocr/manga — Manga-specialized recognition
   // -------------------------------------------------------------------------
-  const endpoint = `${backendUrl}/api/ocr/manga`;
+  const endpoint = `${backendUrl}/ocr/manga`;
 
   // -------------------------------------------------------------------------
   // STEP 2: If no bounding boxes provided, use the whole image.
@@ -241,7 +241,7 @@ export async function recognizeManga(imageBase64, bboxes = [], backendUrl = 'htt
  *   - HTTP error responses
  *   - JSON parsing
  *
- * @param {string} endpoint - Full URL (e.g., "http://localhost:8000/api/ocr/paddle")
+ * @param {string} endpoint - Full URL (e.g., "http://localhost:8000/ocr/paddle")
  * @param {object} body - Request body to send as JSON
  * @returns {Promise<object>} Parsed JSON response from the server
  * @throws {Error} With a user-friendly message if anything goes wrong
