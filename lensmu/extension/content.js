@@ -102,6 +102,8 @@ let currentSettings = {};
  */
 let imageOverlays = new WeakMap();
 
+let imageProcessIds = new WeakMap();
+
 /*
  * Set of image elements we have already processed or are currently
  * processing. Prevents duplicate processing if the MutationObserver
@@ -442,6 +444,11 @@ function scanForImages() {
   );
 
   for (const el of bgCandidates) {
+    /* Skip our own extension elements */
+    if (el.classList?.contains(`${CLASS_PREFIX}-wrapper`) || el.classList?.contains(`${CLASS_PREFIX}-icon-wrapper`) || el.id?.startsWith(CLASS_PREFIX)) {
+      continue;
+    }
+
     /* Skip small elements */
     if (el.offsetWidth < MIN_IMAGE_WIDTH || el.offsetHeight < MIN_IMAGE_HEIGHT) {
       continue;
@@ -469,6 +476,11 @@ function scanForImages() {
   const canvasElements = document.querySelectorAll('canvas');
 
   for (const canvas of canvasElements) {
+    /* Skip our own overlay canvases */
+    if (canvas.classList?.contains(`${CLASS_PREFIX}-canvas`)) {
+      continue;
+    }
+
     if (canvas.width < MIN_IMAGE_WIDTH || canvas.height < MIN_IMAGE_HEIGHT) {
       continue;
     }
@@ -505,6 +517,29 @@ function scanForImages() {
  * @returns {{canvas: HTMLCanvasElement, wrapper: HTMLDivElement}}
  */
 function createOverlay(imageElement) {
+  /*
+   * Remove any existing overlay for this image first to prevent duplicate
+   * canvas/wrapper structures when re-translating.
+   */
+  const existingOverlay = imageOverlays.get(imageElement);
+  if (existingOverlay) {
+    const { wrapper, canvas } = existingOverlay;
+    if (imageElement.tagName === 'IMG' || imageElement.tagName === 'CANVAS') {
+      if (wrapper.parentNode) {
+        const children = Array.from(wrapper.children);
+        for (const child of children) {
+          if (child !== canvas && !child.classList?.contains(`${CLASS_PREFIX}-canvas`)) {
+            wrapper.parentNode.insertBefore(child, wrapper);
+          }
+        }
+      }
+      wrapper.remove();
+    } else {
+      wrapper.remove();
+    }
+    imageOverlays.delete(imageElement);
+  }
+
   /*
    * Get the image's displayed dimensions. These might differ from the
    * natural dimensions (e.g., if CSS scales the image). The overlay
@@ -658,6 +693,9 @@ async function processImage(imageInfo) {
   /* Mark as processed to prevent duplicate work */
   processedImages.add(element);
 
+  const currentRunId = Date.now() + Math.random();
+  imageProcessIds.set(element, currentRunId);
+
   console.log(`[VisionTranslate] Processing ${type} image:`, url?.substring(0, 80) || '(canvas)');
 
   try {
@@ -754,6 +792,11 @@ async function processImage(imageInfo) {
       }
     });
 
+    if (imageProcessIds.get(element) !== currentRunId) {
+      console.log('[VisionTranslate] Aborting stale OCR processing.');
+      return;
+    }
+
     if (!ocrResponse || !ocrResponse.ok) {
       console.warn('[VisionTranslate] OCR request failed:', ocrResponse?.body?.error || 'Unknown error');
       return;
@@ -829,6 +872,11 @@ async function processImage(imageInfo) {
         targetLang: currentSettings.targetLanguage || 'en'
       }
     });
+
+    if (imageProcessIds.get(element) !== currentRunId) {
+      console.log('[VisionTranslate] Aborting stale translation rendering.');
+      return;
+    }
 
     if (!translateResponse || !translateResponse.ok) {
       console.warn('[VisionTranslate] Translation request failed:', translateResponse?.body?.error || 'Unknown error');
@@ -1586,6 +1634,7 @@ function cleanupAll() {
   }
 
   imageOverlays = new WeakMap();
+  imageProcessIds = new WeakMap();
   processedImages = new WeakSet();
 
   /*
