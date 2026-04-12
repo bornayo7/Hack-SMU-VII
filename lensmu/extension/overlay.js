@@ -320,10 +320,10 @@ export const OCR_BLOCK_TUNING = {
 };
 
 export const TEXT_RENDER_TUNING = {
-  maskPaddingPx: 6,
-  maskPaddingRatio: 0.08,
-  innerPaddingPx: 5,
-  innerPaddingRatio: 0.08,
+  maskPaddingPx: 1,
+  maskPaddingRatio: 0.02,
+  innerPaddingPx: 2,
+  innerPaddingRatio: 0.04,
   minFontSize: 8,
   maxFontSize: 72,
   minLineHeight: 1.08,
