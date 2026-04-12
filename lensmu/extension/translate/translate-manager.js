@@ -60,7 +60,7 @@ import { translateWithLibre } from './libre-translate.js';
  * @param {Object}   settings    — User settings from chrome.storage
  * @returns {Promise<Object>}    — { translations: string[], sourceLang, targetLang, provider }
  */
-export async function translateTexts(texts, sourceLang, targetLang, settings) {
+export async function translateTexts(texts, sourceLang, targetLang, settings = {}) {
   /*
    * Guard: If there's nothing to translate, return immediately.
    * This can happen if OCR found bounding boxes but couldn't read any text.
@@ -171,7 +171,8 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
       }
 
       case 'custom': {
-        const baseUrl = settings.customBaseUrl;
+        const rawBaseUrl = (settings.customBaseUrl || '').trim();
+        const baseUrl = rawBaseUrl.replace(/\/+$/, '');
         if (!baseUrl) {
           throw new Error(
             'Custom API requires a base URL. ' +
@@ -205,6 +206,7 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
       }
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[VisionTranslate] Translation failed with provider "${provider}":`, error);
 
     /*
@@ -217,17 +219,22 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
       try {
         result = await translateWithLibre(filteredTexts, sourceLang, targetLang);
         result.fallback = true;
-        result.originalError = error.message;
+        result.originalError = errorMessage;
       } catch (fallbackError) {
+        const fallbackErrorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         console.error('[VisionTranslate] Fallback also failed:', fallbackError);
         throw new Error(
-          `Translation failed: ${error.message}. ` +
-          `Fallback also failed: ${fallbackError.message}`
+          `Translation failed: ${errorMessage}. ` +
+          `Fallback also failed: ${fallbackErrorMessage}`
         );
       }
     } else {
       throw error;
     }
+  }
+
+  if (!result || !Array.isArray(result.translations)) {
+    throw new Error('Translation provider returned an invalid response.');
   }
 
   /*
@@ -240,9 +247,10 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
    *   Translations:    ["Hola", "Mundo"]
    *   Final output:    ["Hola", "", "Mundo", ""]
    */
+  const translatedItems = Array.isArray(result.translations) ? result.translations : [];
   const fullTranslations = new Array(texts.length).fill('');
   for (let i = 0; i < indexMap.length; i++) {
-    fullTranslations[indexMap[i]] = result.translations[i] || '';
+    fullTranslations[indexMap[i]] = translatedItems[i] || '';
   }
 
   return {

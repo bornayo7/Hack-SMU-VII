@@ -62,7 +62,7 @@
  */
 import { getSettings, saveSettings, getDisabledDomains, addDisabledDomain, removeDisabledDomain } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
-import { login as auth0Login, logout as auth0Logout, getAuthState, isAuthenticated as auth0IsAuthenticated } from './auth/auth0.js';
+import { login as auth0Login, logout as auth0Logout, getAuthState } from './auth/auth0.js';
 
 /*
  * --------------------------------------------------------------------------
@@ -499,7 +499,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
    * the message channel open for the async response.
    */
   (async () => {
-    const { action, payload } = message;
+    const action = typeof message?.action === 'string' ? message.action : null;
+    const payload = message?.payload ?? {};
     const tabId = sender.tab?.id;
 
     console.log(`[VisionTranslate] Message received:`, { action, tabId, payload });
@@ -522,6 +523,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
            */
           await toggleTranslation(payload.tabId);
           sendResponse({ success: true, state: getTabState(payload.tabId) });
+        } else {
+          sendResponse({ success: false, error: 'No tabId provided for TOGGLE_TRANSLATION.' });
         }
         break;
       }
@@ -778,7 +781,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
            * Show progress on the badge: "2/5" means 2 of 5 images done.
            * Once all are done, switch back to "ON".
            */
-          if (state.translatedCount < state.imageCount) {
+          if (state.imageCount > 0 && state.translatedCount < state.imageCount) {
             await chrome.action.setBadgeText({
               text: `${state.translatedCount}/${state.imageCount}`,
               tabId
