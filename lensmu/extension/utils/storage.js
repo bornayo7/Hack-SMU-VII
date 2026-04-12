@@ -217,12 +217,12 @@ const DEFAULT_SETTINGS = {
 export async function getSettings() {
   try {
     /*
-     * The popup saves settings as top-level keys in chrome.storage.local
-     * (e.g., { translationProvider: "gemini", targetLanguage: "en", ... }).
-     * We pass DEFAULT_SETTINGS as the defaults — chrome.storage.local.get()
-     * returns the stored value for each key, or the default if not stored.
+     * Read ALL keys from storage. The popup saves settings as top-level
+     * keys (e.g., { translationProvider: "gemini", geminiApiKey: "..." }).
+     * Using get(null) reads everything, including keys like geminiApiKey
+     * that aren't in DEFAULT_SETTINGS.
      */
-    const result = await chrome.storage.local.get(DEFAULT_SETTINGS);
+    const result = await chrome.storage.local.get(null);
     return { ...DEFAULT_SETTINGS, ...result };
   } catch (error) {
     console.error('[VisionTranslate] Error reading settings:', error);
