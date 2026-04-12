@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   Upload,
   FileImage,
@@ -9,7 +9,7 @@ import {
   Wand2,
   RefreshCcw,
   CheckCircle2,
-  Loader2,
+  AlertCircle,
   X,
   Download
 } from "lucide-react";
@@ -20,8 +20,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-
-type ProcessState = "idle" | "uploading" | "scanning" | "translating" | "rendering" | "done" | "error";
+import { translateImage, type ProcessState, type OcrEngine } from "@/lib/translator";
 
 const LANGUAGES = [
   { id: "en", name: "English" },
@@ -39,11 +38,13 @@ export function TranslatorSection() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [processState, setProcessState] = useState<ProcessState>("idle");
   
-  // Settings state
-  const [sourceLang, setSourceLang] = useState("auto");
+  // Settings state — default source to Japanese because our pipeline
+  // can't auto-detect script; the user needs to pick which language
+  // model PaddleOCR loads.
+  const [sourceLang, setSourceLang] = useState("ja");
   const [targetLang, setTargetLang] = useState("en");
-  const [ocrEngine, setOcrEngine] = useState("tesseract");
-  const [provider, setProvider] = useState("openai");
+  const [ocrEngine, setOcrEngine] = useState<OcrEngine>("paddleocr");
+  const [provider, setProvider] = useState("libre");
   const [apiKeys, setApiKeys] = useState({
     openai: "",
     claude: "",
@@ -52,8 +53,20 @@ export function TranslatorSection() {
   });
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModelName, setCustomModelName] = useState("");
-  
+
+  // Result state
+  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [resultBlob, setResultBlob] = useState<Blob | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Release object URLs on unmount / reset to avoid leaks
+  useEffect(() => {
+    return () => {
+      if (resultUrl) URL.revokeObjectURL(resultUrl);
+    };
+  }, [resultUrl]);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -101,29 +114,57 @@ export function TranslatorSection() {
 
   const clearFile = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
     setFile(null);
     setPreviewUrl(null);
+    setResultUrl(null);
+    setResultBlob(null);
+    setErrorMessage(null);
     setProcessState("idle");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const startTranslation = async () => {
     if (!file) return;
-    
-    // Simulate the translation pipeline
-    setProcessState("uploading");
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    setProcessState("scanning");
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    setProcessState("translating");
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setProcessState("rendering");
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    
-    setProcessState("done");
+
+    if (!file.type.includes("image")) {
+      setErrorMessage(
+        "PDF translation isn't wired up yet — please upload an image (JPG, PNG, WEBP)."
+      );
+      setProcessState("error");
+      return;
+    }
+
+    setErrorMessage(null);
+
+    try {
+      const result = await translateImage({
+        file,
+        ocrEngine,
+        sourceLang,
+        targetLang,
+        onProgress: (state) => setProcessState(state),
+      });
+      setResultBlob(result.blob);
+      setResultUrl(result.url);
+      setProcessState("done");
+    } catch (err) {
+      console.error("[translator] pipeline failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMessage(msg);
+      setProcessState("error");
+    }
+  };
+
+  const downloadResult = () => {
+    if (!resultBlob || !file) return;
+    const a = document.createElement("a");
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "translated";
+    a.href = resultUrl ?? URL.createObjectURL(resultBlob);
+    a.download = `${baseName}-translated.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   return (
@@ -228,11 +269,13 @@ export function TranslatorSection() {
                             onChange={(e) => setSourceLang(e.target.value)}
                             className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <option value="auto">Auto-detect</option>
                             {LANGUAGES.map((lang) => (
                               <option key={lang.id} value={lang.id}>{lang.name}</option>
                             ))}
                           </select>
+                          <p className="text-[11px] text-muted-foreground">
+                            Pick the language of the text in the image.
+                          </p>
                         </div>
                         <div className="space-y-2">
                           <Label className="text-sm font-medium" htmlFor="target-lang">Target Language</Label>
@@ -254,100 +297,27 @@ export function TranslatorSection() {
                         <select
                           id="ocr-engine"
                           value={ocrEngine}
-                          onChange={(e) => setOcrEngine(e.target.value)}
+                          onChange={(e) => setOcrEngine(e.target.value as OcrEngine)}
                           className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <option value="tesseract">Tesseract.js (Local, No setup)</option>
-                          <option value="paddleocr">PaddleOCR (Server, Best for CJK)</option>
-                          <option value="mangaocr">MangaOCR (Server, Best for JP Manga)</option>
-                          <option value="google_vision">Google Cloud Vision (Cloud)</option>
+                          <option value="paddleocr">PaddleOCR (any language — pick it in Source below)</option>
+                          <option value="mangaocr">MangaOCR (Japanese manga only)</option>
                         </select>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Determines how text is detected and extracted from the image.
+                          Requires the local backend at{" "}
+                          <code className="text-foreground">http://localhost:8000</code>.
+                          {ocrEngine === "mangaocr" && (
+                            <> MangaOCR is Japanese-only — use PaddleOCR for other languages.</>
+                          )}
                         </p>
                       </div>
 
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         <Label className="text-sm font-medium">Translation Engine</Label>
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                          {[
-                            { id: "openai", label: "OpenAI" },
-                            { id: "claude", label: "Claude" },
-                            { id: "gemini", label: "Gemini" },
-                            { id: "custom", label: "Custom API" },
-                            { id: "libre", label: "LibreTranslate" },
-                          ].map(p => (
-                            <button
-                              key={p.id}
-                              onClick={() => setProvider(p.id)}
-                              className={cn(
-                                "flex items-center justify-center py-2 rounded-md border text-xs font-medium transition-colors",
-                                provider === p.id 
-                                  ? "border-primary bg-primary/10 text-primary" 
-                                  : "border-border hover:bg-muted text-muted-foreground hover:text-foreground"
-                              )}
-                            >
-                              {p.label}
-                            </button>
-                          ))}
+                        <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                          Using <span className="font-medium text-foreground">MyMemory</span> (free, no key required). LLM providers are available in the browser extension.
                         </div>
                       </div>
-
-                      {provider === "custom" && (
-                        <div className="space-y-3">
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium" htmlFor="custom-url">API Base URL</Label>
-                            <Input
-                              id="custom-url"
-                              type="url"
-                              placeholder="http://localhost:11434/v1"
-                              value={customBaseUrl}
-                              onChange={(e) => setCustomBaseUrl(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium" htmlFor="custom-model">Model Name</Label>
-                            <Input
-                              id="custom-model"
-                              type="text"
-                              placeholder="llama3, gpt-4o..."
-                              value={customModelName}
-                              onChange={(e) => setCustomModelName(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium" htmlFor="custom-key">API Key (Optional)</Label>
-                            <Input
-                              id="custom-key"
-                              type="password"
-                              placeholder="sk-..."
-                              value={apiKeys.custom}
-                              onChange={(e) => setApiKeys(prev => ({ ...prev, custom: e.target.value }))}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Required if your custom endpoint is authenticated.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {provider !== "libre" && provider !== "custom" && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium" htmlFor="api-key">
-                            {provider === "openai" ? "OpenAI" : provider === "claude" ? "Anthropic" : "Google Gemini"} API Key
-                          </Label>
-                          <Input
-                            id="api-key"
-                            type="password"
-                            placeholder="sk-..."
-                            value={apiKeys[provider as keyof typeof apiKeys] || ""}
-                            onChange={(e) => setApiKeys(prev => ({ ...prev, [provider]: e.target.value }))}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Your API key is used locally and is never sent to our servers.
-                          </p>
-                        </div>
-                      )}
 
                       <div className="pt-2 border-t border-border/50">
                         <Button size="lg" className="w-full rounded-full shadow-md h-12 text-base" onClick={startTranslation}>
@@ -357,7 +327,7 @@ export function TranslatorSection() {
                       </div>
                     </div>
                   </Card>
-                ) : processState === "done" ? (
+                ) : processState === "done" && resultUrl ? (
                   <div className="flex flex-col h-full">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-semibold text-lg flex items-center gap-2 text-green-600 dark:text-green-500">
@@ -368,21 +338,62 @@ export function TranslatorSection() {
                         <RefreshCcw className="h-4 w-4 mr-1" /> Translate Another
                       </Button>
                     </div>
-                    
-                    <Card className="flex-1 overflow-hidden bg-card border-border relative min-h-[300px] lg:min-h-[500px] flex items-center justify-center p-6">
-                      <div className="text-center max-w-sm">
-                        <div className="h-16 w-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                          <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-500" />
-                        </div>
-                        <h4 className="text-xl font-bold mb-2">Ready for Download</h4>
-                        <p className="text-muted-foreground mb-8 text-sm">
-                          Your document has been translated and the text has been seamlessly overlaid onto the original file.
-                        </p>
-                        <Button size="lg" className="w-full rounded-full bg-green-600 hover:bg-green-700 text-white border-0 shadow-md">
-                          <Download className="h-5 w-5 mr-2" />
-                          Download Result
-                        </Button>
+
+                    <Card className="flex-1 overflow-hidden bg-muted/30 border-border relative min-h-[300px] lg:min-h-[500px] flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={resultUrl}
+                        alt="Translated result"
+                        className="h-full w-full object-contain p-4"
+                      />
+                    </Card>
+
+                    <Button
+                      size="lg"
+                      onClick={downloadResult}
+                      className="mt-4 w-full rounded-full bg-green-600 hover:bg-green-700 text-white border-0 shadow-md"
+                    >
+                      <Download className="h-5 w-5 mr-2" />
+                      Download Translated Image
+                    </Button>
+                  </div>
+                ) : processState === "error" ? (
+                  <div className="flex flex-col h-full">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-semibold text-lg flex items-center gap-2 text-destructive">
+                        <AlertCircle className="h-5 w-5" />
+                        Translation Failed
+                      </h3>
+                      <Button variant="ghost" size="sm" onClick={clearFile} className="h-8 text-muted-foreground">
+                        <RefreshCcw className="h-4 w-4 mr-1" /> Start Over
+                      </Button>
+                    </div>
+
+                    <Card className="flex-1 p-8 flex flex-col items-center justify-center text-center border-destructive/40 bg-destructive/5">
+                      <div className="h-16 w-16 bg-destructive/10 rounded-full flex items-center justify-center mb-6">
+                        <AlertCircle className="h-8 w-8 text-destructive" />
                       </div>
+                      <h4 className="text-lg font-semibold mb-2">Something went wrong</h4>
+                      <p className="text-sm text-muted-foreground max-w-md whitespace-pre-wrap">
+                        {errorMessage ?? "Unknown error"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-6 max-w-md">
+                        Make sure the Python backend is running at{" "}
+                        <code className="text-foreground">http://localhost:8000</code>{" "}
+                        (<code className="text-foreground">python server.py</code> in{" "}
+                        <code className="text-foreground">lensmu/backend/</code>).
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-6"
+                        onClick={() => {
+                          setErrorMessage(null);
+                          setProcessState("idle");
+                        }}
+                      >
+                        Try Again
+                      </Button>
                     </Card>
                   </div>
                 ) : (
