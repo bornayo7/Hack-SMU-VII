@@ -1,63 +1,16 @@
-/**
- * App.jsx — Main popup settings UI for VisionTranslate (lensmu).
- *
- * ARCHITECTURE OVERVIEW FOR BROWSER EXTENSION BEGINNERS:
- *
- * A Chrome extension has several "contexts" that run in isolation:
- *
- *   1. POPUP (this file) — The small window that opens when you click the
- *      extension icon. It has its own DOM and React tree. It is destroyed
- *      every time the popup closes, so all state must be persisted to
- *      chrome.storage.local.
- *
- *   2. BACKGROUND SERVICE WORKER — A long-lived script that runs in the
- *      background (no DOM). It handles events like tab changes, messages
- *      from content scripts, and network requests. Defined in manifest.json
- *      under "background.service_worker".
- *
- *   3. CONTENT SCRIPTS — JavaScript injected into web pages. They can read
- *      and modify the page's DOM (e.g., overlay translations on images).
- *      They cannot access chrome.storage directly in Manifest V3 — they
- *      must message the background script to read/write settings.
- *
- * COMMUNICATION FLOW:
- *   Popup  --chrome.runtime.sendMessage-->  Background Service Worker
- *   Popup  --chrome.tabs.sendMessage-->     Content Script (in active tab)
- *   Content Script  --chrome.runtime.sendMessage-->  Background Service Worker
- *
- * This popup communicates with the rest of the extension in two ways:
- *   a) Reads/writes settings to chrome.storage.local (shared across all contexts).
- *   b) Sends a "TRANSLATE_PAGE" message to the content script via chrome.tabs.sendMessage
- *      when the user clicks the "Translate This Page" button.
- */
-
-import React, { useState, useEffect, useCallback } from "react";
-import OcrSettings from "./components/OcrSettings.jsx";
-import TranslateSettings from "./components/TranslateSettings.jsx";
+import React, { useEffect, useRef, useState } from "react";
+import OcrSettings, { ENGINE_OPTIONS } from "./components/OcrSettings.jsx";
+import TranslateSettings, {
+  PROVIDER_OPTIONS,
+} from "./components/TranslateSettings.jsx";
 import LanguageSelector from "./components/LanguageSelector.jsx";
 
-/**
- * DEFAULT_SETTINGS — Fallback values used when no settings exist in storage yet
- * (i.e., the very first time the extension is installed). Each key corresponds
- * to a setting that the user can change in the popup UI.
- */
 const DEFAULT_SETTINGS = {
-  // Which OCR engine to use for extracting text from images
   ocrEngine: "tesseract",
-
-  // Which translation service to use
   translationProvider: "libre",
-
-  // Source language: "auto" means auto-detect
   sourceLanguage: "auto",
-
-  // Target language to translate into
   targetLanguage: "en",
-
-  // URL of the backend server that runs PaddleOCR / MangaOCR
   backendUrl: "http://localhost:8000",
-
-  // API keys for various services (empty by default — user must provide)
   googleCloudApiKey: "",
   openaiApiKey: "",
   claudeApiKey: "",
@@ -65,286 +18,691 @@ const DEFAULT_SETTINGS = {
   customApiKey: "",
   customBaseUrl: "",
   customModelName: "",
-
-  // LLM model to use when translating with OpenAI, Claude, or Gemini
   llmModel: "gemini-2.0-flash",
-
-  // UI preference: light or dark theme
   darkMode: false,
+  showConfidenceBorders: true,
+  overlayFontFamily: "sans",
+  overlayMinFontSize: 10,
+  overlayTextAlign: "auto",
+  contextSharingEnabled: false,
 };
 
-export default function App() {
-  // ─── State ───────────────────────────────────────────────────────────
-  // All settings are kept in a single state object for simplicity.
-  // When any setting changes, we persist the entire object to storage.
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+const TAB_ITEMS = [
+  { id: "home", label: "Home" },
+  { id: "engines", label: "Engines" },
+  { id: "settings", label: "Settings" },
+];
 
-  // Whether settings have been loaded from storage yet (prevents flash of defaults)
-  const [loaded, setLoaded] = useState(false);
+const OVERLAY_FONT_OPTIONS = [
+  { id: "sans", label: "Sans Serif" },
+  { id: "serif", label: "Serif" },
+  { id: "manga", label: "Manga-Friendly" },
+  { id: "mono", label: "Monospace" },
+];
 
-  // Backend server reachability status: "checking" | "online" | "offline"
-  const [serverStatus, setServerStatus] = useState("checking");
+const OVERLAY_ALIGNMENT_OPTIONS = [
+  { id: "auto", label: "Auto" },
+  { id: "left", label: "Left" },
+  { id: "center", label: "Center" },
+  { id: "right", label: "Right" },
+];
 
-  // ─── Load settings from chrome.storage on mount ──────────────────────
-  useEffect(() => {
-    /**
-     * chrome.storage.local.get() reads persisted settings. We pass
-     * DEFAULT_SETTINGS as the second argument so that any missing keys
-     * are filled in with defaults automatically.
-     *
-     * In development outside of a Chrome extension context (e.g., in a
-     * regular browser tab), chrome.storage won't exist. We fall back to
-     * defaults so the UI is still usable for development.
-     */
-    if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.local.get(DEFAULT_SETTINGS, (result) => {
-        setSettings(result);
-        setLoaded(true);
-      });
-    } else {
-      // Development fallback: just use defaults
-      console.warn(
-        "[VisionTranslate] chrome.storage not available — using defaults. " +
-          "This is normal during development outside of a Chrome extension."
-      );
-      setLoaded(true);
+const MIN_FONT_SIZE_OPTIONS = [8, 10, 12, 14, 16];
+
+function normalizeLoadedSettings(rawSettings = {}) {
+  const nextSettings = { ...rawSettings };
+
+  if (nextSettings.translationProvider === "google") {
+    nextSettings.translationProvider = "libre";
+  }
+
+  return nextSettings;
+}
+
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
+      resolve(null);
+      return;
     }
+
+    chrome.runtime.sendMessage(message, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function queryActiveTab() {
+  return new Promise((resolve) => {
+    if (typeof chrome === "undefined" || !chrome.tabs?.query) {
+      resolve(null);
+      return;
+    }
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      resolve(tabs?.[0] || null);
+    });
+  });
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    if (typeof chrome === "undefined" || !chrome.tabs?.sendMessage || !tabId) {
+      resolve(null);
+      return;
+    }
+
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onToggle,
+  badge,
+  disabled = false,
+}) {
+  return (
+    <div className={`toggle-row ${disabled ? "is-disabled" : ""}`}>
+      <div className="toggle-copy">
+        <div className="toggle-title-row">
+          <span className="toggle-label">{label}</span>
+          {badge ? <span className="mini-badge">{badge}</span> : null}
+        </div>
+        {description ? <p className="toggle-description">{description}</p> : null}
+      </div>
+
+      <button
+        type="button"
+        className={`toggle-control ${checked ? "is-on" : ""}`}
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onToggle}
+      >
+        <span className="toggle-thumb" />
+      </button>
+    </div>
+  );
+}
+
+export default function App() {
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [loaded, setLoaded] = useState(false);
+  const [serverStatus, setServerStatus] = useState("checking");
+  const [activeTabId, setActiveTabId] = useState(null);
+  const [tabState, setTabState] = useState({ active: false });
+  const [activeTab, setActiveTab] = useState("home");
+  const [isTogglingPage, setIsTogglingPage] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [tabUnavailable, setTabUnavailable] = useState(false);
+  const hasHydrated = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPopupState() {
+      try {
+        const [settingsResponse, currentTab] = await Promise.all([
+          sendRuntimeMessage({ action: "GET_SETTINGS" }).catch(() => null),
+          queryActiveTab(),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          ...normalizeLoadedSettings(settingsResponse?.settings || {}),
+        });
+
+        if (currentTab?.id) {
+          setActiveTabId(currentTab.id);
+
+          const tabStateResponse = await sendRuntimeMessage({
+            action: "GET_TAB_STATE",
+            payload: { tabId: currentTab.id },
+          }).catch(() => null);
+
+          if (!cancelled) {
+            setTabState(tabStateResponse?.state || { active: false });
+          }
+        } else {
+          setTabUnavailable(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoaded(true);
+        }
+      }
+    }
+
+    loadPopupState();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // ─── Persist settings to chrome.storage whenever they change ─────────
-  useEffect(() => {
-    // Don't write defaults back to storage before we've loaded real values
-    if (!loaded) return;
-
-    if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.local.set(settings);
-    }
-  }, [settings, loaded]);
-
-  // ─── Apply dark mode class to the root HTML element ──────────────────
   useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.darkMode);
   }, [settings.darkMode]);
 
-  // ─── Check backend server reachability ───────────────────────────────
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded) {
+      return undefined;
+    }
 
-    const checkServer = async () => {
-      setServerStatus("checking");
+    if (!hasHydrated.current) {
+      hasHydrated.current = true;
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
       try {
-        /**
-         * We ping the backend's health endpoint. A real backend would expose
-         * GET /health or GET /api/status that returns 200 OK. We use a short
-         * timeout so the popup doesn't hang if the server is down.
-         */
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        await sendRuntimeMessage({
+          action: "SAVE_SETTINGS",
+          payload: { settings },
+        });
+      } catch (error) {
+        console.warn("[VisionTranslate] Falling back to local storage save:", error);
+        if (typeof chrome !== "undefined" && chrome.storage?.local) {
+          chrome.storage.local.set(settings);
+        }
+      }
+    }, 180);
 
+    return () => window.clearTimeout(timeoutId);
+  }, [settings, loaded]);
+
+  useEffect(() => {
+    if (!loaded) {
+      return undefined;
+    }
+
+    const serverBackedEngine = settings.ocrEngine === "paddleocr" || settings.ocrEngine === "mangaocr";
+
+    if (!serverBackedEngine) {
+      setServerStatus("idle");
+      return undefined;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function checkServer() {
+      setServerStatus("checking");
+
+      try {
+        const timeoutId = window.setTimeout(() => controller.abort(), 3000);
         const response = await fetch(`${settings.backendUrl}/health`, {
           method: "GET",
           signal: controller.signal,
         });
-        clearTimeout(timeoutId);
+        window.clearTimeout(timeoutId);
 
-        setServerStatus(response.ok ? "online" : "offline");
+        if (!cancelled) {
+          setServerStatus(response.ok ? "online" : "offline");
+        }
       } catch {
-        // Network error, timeout, or server unreachable
-        setServerStatus("offline");
+        if (!cancelled) {
+          setServerStatus("offline");
+        }
       }
-    };
+    }
 
     checkServer();
-    // Re-check whenever the backend URL changes
-  }, [settings.backendUrl, loaded]);
 
-  // ─── Generic setting updater ─────────────────────────────────────────
-  /**
-   * updateSetting creates a new settings object with one key changed.
-   * We use the functional form of setState to avoid stale closures.
-   */
-  const updateSetting = useCallback((key, value) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-  }, []);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [loaded, settings.backendUrl, settings.ocrEngine]);
 
-  // ─── "Translate This Page" action ────────────────────────────────────
-  const handleTranslatePage = useCallback(() => {
-    /**
-     * To trigger translation on the current page, we need to send a message
-     * to the CONTENT SCRIPT running in the active tab. The flow is:
-     *
-     *   1. chrome.tabs.query finds the currently active tab.
-     *   2. chrome.tabs.sendMessage sends a message to that tab's content script.
-     *   3. The content script receives the message via chrome.runtime.onMessage
-     *      and begins the OCR + translation pipeline.
-     *
-     * The message payload includes the current settings so the content script
-     * knows which OCR engine and translation provider to use.
-     */
-    if (typeof chrome !== "undefined" && chrome.tabs) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: "TRANSLATE_PAGE",
-            settings: settings,
-          });
-        }
+  const updateSetting = (key, value) => {
+    setSettings((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const selectedEngine =
+    ENGINE_OPTIONS.find((option) => option.id === settings.ocrEngine) || ENGINE_OPTIONS[0];
+  const selectedProvider =
+    PROVIDER_OPTIONS.find((option) => option.id === settings.translationProvider) ||
+    PROVIDER_OPTIONS[0];
+
+  const translateRequiresServer =
+    settings.ocrEngine === "paddleocr" || settings.ocrEngine === "mangaocr";
+  const translateDisabled =
+    !activeTabId ||
+    isTranslating ||
+    isTogglingPage ||
+    (translateRequiresServer && serverStatus !== "online");
+
+  const serverStatusCopy = {
+    online: "Backend online",
+    offline: "Backend offline",
+    checking: "Checking backend",
+    idle: "Local engine selected",
+  };
+
+  const pageStatusDescription = tabUnavailable
+    ? "This tab does not allow extension scripts."
+    : tabState.active
+      ? "Toolbar and per-image controls stay available until you switch them off."
+      : "Turn this on to keep VisionTranslate active on the current tab.";
+
+  async function handleTogglePage() {
+    if (!activeTabId) {
+      return;
+    }
+
+    setIsTogglingPage(true);
+
+    try {
+      const response = await sendRuntimeMessage({
+        action: "TOGGLE_TRANSLATION",
+        payload: { tabId: activeTabId },
       });
 
-      // Close the popup after triggering — the content script handles the rest
-      window.close();
-    } else {
-      console.log(
-        "[VisionTranslate] Would send TRANSLATE_PAGE message with settings:",
-        settings
-      );
+      if (response?.state) {
+        setTabState(response.state);
+      }
+    } catch (error) {
+      console.error("[VisionTranslate] Could not toggle page translation:", error);
+    } finally {
+      setIsTogglingPage(false);
     }
-  }, [settings]);
+  }
 
-  // ─── Don't render until settings are loaded ──────────────────────────
+  async function handleTranslatePage() {
+    if (!activeTabId) {
+      return;
+    }
+
+    setIsTranslating(true);
+
+    try {
+      if (!tabState.active) {
+        const toggleResponse = await sendRuntimeMessage({
+          action: "TOGGLE_TRANSLATION",
+          payload: { tabId: activeTabId },
+        });
+
+        if (toggleResponse?.state) {
+          setTabState(toggleResponse.state);
+        }
+      }
+
+      await sendTabMessage(activeTabId, {
+        action: "TRANSLATE_ALL_IMAGES",
+        payload: { settings },
+      });
+
+      window.close();
+    } catch (error) {
+      console.error("[VisionTranslate] Could not translate page:", error);
+    } finally {
+      setIsTranslating(false);
+    }
+  }
+
   if (!loaded) {
     return (
       <div className="popup-loading">
         <div className="spinner" />
-        Loading settings...
+        <p>Loading VisionTranslate...</p>
       </div>
     );
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────
   return (
     <div className="popup-container">
-      {/* ── Header ─────────────────────────────────────────────────── */}
       <header className="popup-header">
-        <div className="popup-title-row">
-          <h1 className="popup-title">VisionTranslate</h1>
+        <div className="brand-row">
+          <div className="brand-mark" aria-hidden="true">
+            VT
+          </div>
 
-          {/* Dark mode toggle */}
-          <button
-            className="dark-mode-toggle"
-            onClick={() => updateSetting("darkMode", !settings.darkMode)}
-            aria-label={
-              settings.darkMode
-                ? "Switch to light mode"
-                : "Switch to dark mode"
-            }
-            title={settings.darkMode ? "Light mode" : "Dark mode"}
-          >
-            {/*
-              Using simple text glyphs instead of emoji.
-              A sun/moon icon library would be better in production.
-            */}
-            {settings.darkMode ? "Light" : "Dark"}
-          </button>
+          <div className="brand-copy">
+            <p className="popup-eyebrow">VisionTranslate</p>
+            <h1 className="popup-title">Image translation controls</h1>
+            <p className="popup-subtitle">
+              Keep everyday actions close, and push engine setup into its own
+              space.
+            </p>
+          </div>
         </div>
 
-        {/* Server status indicator */}
-        <div className="server-status">
-          <span
-            className={`status-dot status-${serverStatus}`}
-            aria-hidden="true"
-          />
-          <span className="status-text">
-            {serverStatus === "checking" && "Checking server..."}
-            {serverStatus === "online" && "Backend server connected"}
-            {serverStatus === "offline" && "Backend server unreachable"}
-          </span>
+        <div className="summary-pills" aria-label="Current engine summary">
+          <span className="summary-pill">OCR · {selectedEngine.name}</span>
+          <span className="summary-pill">Translate · {selectedProvider.name}</span>
         </div>
       </header>
 
-      {/* ── Main scrollable content ────────────────────────────────── */}
+      <nav className="tab-nav" role="tablist" aria-label="Popup sections">
+        {TAB_ITEMS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            className={`tab-button ${activeTab === tab.id ? "is-active" : ""}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
       <main className="popup-content">
-        {/* Section 1: OCR Engine Configuration */}
-        <section className="settings-section">
-          <h2 className="section-title">OCR Engine</h2>
-          <OcrSettings
-            engine={settings.ocrEngine}
-            onEngineChange={(val) => updateSetting("ocrEngine", val)}
-            backendUrl={settings.backendUrl}
-            onBackendUrlChange={(val) => updateSetting("backendUrl", val)}
-            googleCloudApiKey={settings.googleCloudApiKey}
-            onGoogleCloudApiKeyChange={(val) =>
-              updateSetting("googleCloudApiKey", val)
-            }
-          />
-        </section>
+        {activeTab === "home" && (
+          <>
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Quick Start</p>
+                  <h2 className="section-title">Current page</h2>
+                  <p className="section-description">
+                    Start here when you just want the extension ready on the
+                    page.
+                  </p>
+                </div>
 
-        {/* Section 2: Translation Provider */}
-        <section className="settings-section">
-          <h2 className="section-title">Translation Provider</h2>
-          <TranslateSettings
-            provider={settings.translationProvider}
-            onProviderChange={(val) =>
-              updateSetting("translationProvider", val)
-            }
-            openaiApiKey={settings.openaiApiKey}
-            onOpenaiApiKeyChange={(val) => updateSetting("openaiApiKey", val)}
-            claudeApiKey={settings.claudeApiKey}
-            onClaudeApiKeyChange={(val) => updateSetting("claudeApiKey", val)}
-            geminiApiKey={settings.geminiApiKey}
-            onGeminiApiKeyChange={(val) => updateSetting("geminiApiKey", val)}
-            googleCloudApiKey={settings.googleCloudApiKey}
-            onGoogleCloudApiKeyChange={(val) =>
-              updateSetting("googleCloudApiKey", val)
-            }
-            llmModel={settings.llmModel}
-            onLlmModelChange={(val) => updateSetting("llmModel", val)}
-            customApiKey={settings.customApiKey}
-            onCustomApiKeyChange={(val) => updateSetting("customApiKey", val)}
-            customBaseUrl={settings.customBaseUrl}
-            onCustomBaseUrlChange={(val) =>
-              updateSetting("customBaseUrl", val)
-            }
-            customModelName={settings.customModelName}
-            onCustomModelNameChange={(val) =>
-              updateSetting("customModelName", val)
-            }
-          />
-        </section>
+                <div className={`status-chip status-chip--${serverStatus}`}>
+                  <span className="status-dot" aria-hidden="true" />
+                  <span>{serverStatusCopy[serverStatus]}</span>
+                </div>
+              </div>
 
-        {/* Section 3: Language Selection */}
-        <section className="settings-section">
-          <h2 className="section-title">Languages</h2>
-          <LanguageSelector
-            sourceLanguage={settings.sourceLanguage}
-            onSourceChange={(val) => updateSetting("sourceLanguage", val)}
-            targetLanguage={settings.targetLanguage}
-            onTargetChange={(val) => updateSetting("targetLanguage", val)}
-          />
-        </section>
+              <ToggleRow
+                label="Enable translation on this page"
+                description={pageStatusDescription}
+                checked={Boolean(tabState.active)}
+                onToggle={handleTogglePage}
+                disabled={tabUnavailable || isTogglingPage}
+              />
+            </section>
 
-        {/* Section 4: Server Configuration */}
-        <section className="settings-section">
-          <h2 className="section-title">Server Configuration</h2>
-          <div className="form-group">
-            <label className="form-label" htmlFor="backend-url">
-              Backend Server URL
-            </label>
-            <input
-              id="backend-url"
-              type="url"
-              className="form-input"
-              value={settings.backendUrl}
-              onChange={(e) => updateSetting("backendUrl", e.target.value)}
-              placeholder="http://localhost:8000"
-            />
-            <p className="form-hint">
-              URL of the Python backend running PaddleOCR or MangaOCR. Only
-              needed if you selected a server-based OCR engine above.
-            </p>
-          </div>
-        </section>
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Languages</p>
+                  <h2 className="section-title">Translation direction</h2>
+                  <p className="section-description">
+                    Choose what the image text starts as and what it should
+                    become.
+                  </p>
+                </div>
+              </div>
+
+              <LanguageSelector
+                sourceLanguage={settings.sourceLanguage}
+                onSourceChange={(value) => updateSetting("sourceLanguage", value)}
+                targetLanguage={settings.targetLanguage}
+                onTargetChange={(value) => updateSetting("targetLanguage", value)}
+              />
+            </section>
+
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Overlay Text</p>
+                  <h2 className="section-title">English overlay styling</h2>
+                  <p className="section-description">
+                    Tune the translated text without opening the engine config.
+                  </p>
+                </div>
+              </div>
+
+              <div className="field-grid field-grid--triple">
+                <div className="form-group">
+                  <label className="form-label" htmlFor="overlay-font-family">
+                    Font family
+                  </label>
+                  <select
+                    id="overlay-font-family"
+                    className="form-select"
+                    value={settings.overlayFontFamily}
+                    onChange={(event) =>
+                      updateSetting("overlayFontFamily", event.target.value)
+                    }
+                  >
+                    {OVERLAY_FONT_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="overlay-min-font-size">
+                    Minimum size
+                  </label>
+                  <select
+                    id="overlay-min-font-size"
+                    className="form-select"
+                    value={String(settings.overlayMinFontSize)}
+                    onChange={(event) =>
+                      updateSetting("overlayMinFontSize", Number(event.target.value))
+                    }
+                  >
+                    {MIN_FONT_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>
+                        {size}px
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="overlay-text-align">
+                    Alignment
+                  </label>
+                  <select
+                    id="overlay-text-align"
+                    className="form-select"
+                    value={settings.overlayTextAlign}
+                    onChange={(event) =>
+                      updateSetting("overlayTextAlign", event.target.value)
+                    }
+                  >
+                    {OVERLAY_ALIGNMENT_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="card-divider" />
+
+              <ToggleRow
+                label="Context Sharing"
+                description="Saved locally for future multi-bubble context handling. It does not affect translations yet."
+                checked={Boolean(settings.contextSharingEnabled)}
+                badge="Preview"
+                onToggle={() =>
+                  // TODO: Wire this into prompt construction once shared-context translation is supported.
+                  updateSetting(
+                    "contextSharingEnabled",
+                    !settings.contextSharingEnabled
+                  )
+                }
+              />
+            </section>
+          </>
+        )}
+
+        {activeTab === "engines" && (
+          <>
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">OCR</p>
+                  <h2 className="section-title">Text detection engine</h2>
+                  <p className="section-description">
+                    Pick the OCR path and only show the setup that engine needs.
+                  </p>
+                </div>
+              </div>
+
+              <OcrSettings
+                engine={settings.ocrEngine}
+                onEngineChange={(value) => updateSetting("ocrEngine", value)}
+                backendUrl={settings.backendUrl}
+                onBackendUrlChange={(value) => updateSetting("backendUrl", value)}
+                googleCloudApiKey={settings.googleCloudApiKey}
+                onGoogleCloudApiKeyChange={(value) =>
+                  updateSetting("googleCloudApiKey", value)
+                }
+              />
+            </section>
+
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Translation</p>
+                  <h2 className="section-title">Provider and model</h2>
+                  <p className="section-description">
+                    Move API keys, model choices, and custom endpoints into one
+                    scan-friendly section.
+                  </p>
+                </div>
+              </div>
+
+              <TranslateSettings
+                provider={settings.translationProvider}
+                onProviderChange={(value) =>
+                  updateSetting("translationProvider", value)
+                }
+                openaiApiKey={settings.openaiApiKey}
+                onOpenaiApiKeyChange={(value) =>
+                  updateSetting("openaiApiKey", value)
+                }
+                claudeApiKey={settings.claudeApiKey}
+                onClaudeApiKeyChange={(value) =>
+                  updateSetting("claudeApiKey", value)
+                }
+                geminiApiKey={settings.geminiApiKey}
+                onGeminiApiKeyChange={(value) =>
+                  updateSetting("geminiApiKey", value)
+                }
+                llmModel={settings.llmModel}
+                onLlmModelChange={(value) => updateSetting("llmModel", value)}
+                customApiKey={settings.customApiKey}
+                onCustomApiKeyChange={(value) =>
+                  updateSetting("customApiKey", value)
+                }
+                customBaseUrl={settings.customBaseUrl}
+                onCustomBaseUrlChange={(value) =>
+                  updateSetting("customBaseUrl", value)
+                }
+                customModelName={settings.customModelName}
+                onCustomModelNameChange={(value) =>
+                  updateSetting("customModelName", value)
+                }
+              />
+            </section>
+          </>
+        )}
+
+        {activeTab === "settings" && (
+          <>
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Appearance</p>
+                  <h2 className="section-title">Popup theme</h2>
+                  <p className="section-description">
+                    Keep the popup readable in bright or dark browser chrome.
+                  </p>
+                </div>
+              </div>
+
+              <div className="segmented-grid" role="group" aria-label="Theme">
+                <button
+                  type="button"
+                  className={`segment-button ${!settings.darkMode ? "is-active" : ""}`}
+                  onClick={() => updateSetting("darkMode", false)}
+                >
+                  Light
+                </button>
+                <button
+                  type="button"
+                  className={`segment-button ${settings.darkMode ? "is-active" : ""}`}
+                  onClick={() => updateSetting("darkMode", true)}
+                >
+                  Dark
+                </button>
+              </div>
+            </section>
+
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Overlay Feedback</p>
+                  <h2 className="section-title">Confidence markers</h2>
+                  <p className="section-description">
+                    Keep subtle cues visible when OCR confidence is weaker.
+                  </p>
+                </div>
+              </div>
+
+              <ToggleRow
+                label="Show low-confidence markers"
+                description="Displays a thin warning underline on weaker OCR regions."
+                checked={Boolean(settings.showConfidenceBorders)}
+                onToggle={() =>
+                  updateSetting(
+                    "showConfidenceBorders",
+                    !settings.showConfidenceBorders
+                  )
+                }
+              />
+
+              <p className="section-note">
+                Settings are stored locally. Context Sharing is only a saved UI
+                placeholder for now.
+              </p>
+            </section>
+          </>
+        )}
       </main>
 
-      {/* ── Footer with action button ──────────────────────────────── */}
       <footer className="popup-footer">
         <button
           className="translate-button"
           onClick={handleTranslatePage}
-          disabled={serverStatus === "checking"}
+          disabled={translateDisabled}
         >
-          Translate This Page
+          {isTranslating ? "Translating..." : "Translate This Page"}
         </button>
+
+        <p className="footer-note">
+          {!tabState.active
+            ? "Page controls will be enabled automatically before translation."
+            : "Runs on the current tab with your current engine settings."}
+        </p>
       </footer>
     </div>
   );

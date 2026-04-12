@@ -135,7 +135,7 @@ export async function translateWithLibre(texts, sourceLang, targetLang) {
    */
   throw new Error(
     'All free translation services failed. Check your internet connection, ' +
-    'or configure a paid provider (Google Cloud Translation or an LLM) ' +
+    'or configure an LLM provider ' +
     'for more reliable translation.'
   );
 }

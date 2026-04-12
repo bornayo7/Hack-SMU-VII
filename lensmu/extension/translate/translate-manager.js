@@ -12,16 +12,13 @@
  *
  * AVAILABLE PROVIDERS:
  * --------------------
- *   1. Google Cloud Translation — Reliable, accurate, supports 100+ languages.
- *      Requires an API key. Has a free tier (500K chars/month).
- *
- *   2. OpenAI (GPT) — LLM-based translation. Excellent for context-aware
+ *   1. OpenAI (GPT) — LLM-based translation. Excellent for context-aware
  *      translation of manga, slang, idioms. Requires API key, costs per token.
  *
- *   3. Claude (Anthropic) — Similar to OpenAI but from Anthropic. Also great
+ *   2. Claude (Anthropic) — Similar to OpenAI but from Anthropic. Also great
  *      for contextual/manga translation. Requires API key.
  *
- *   4. LibreTranslate / MyMemory — Free, no API key needed. Quality varies
+ *   3. LibreTranslate / MyMemory — Free, no API key needed. Quality varies
  *      by language pair. Good as a free fallback.
  *
  * NORMALIZED OUTPUT:
@@ -31,7 +28,7 @@
  *     translations: ["translated text 1", "translated text 2", ...],
  *     sourceLang: "ja",      // detected or specified source language
  *     targetLang: "en",      // target language
- *     provider: "google"     // which provider was used
+ *     provider: "openai"     // which provider was used
  *   }
  *
  * The translations array is in the SAME ORDER as the input texts array.
@@ -51,7 +48,6 @@
  * =============================================================================
  */
 
-import { translateWithGoogle } from './google-translate.js';
 import { translateWithLLM } from './llm-translate.js';
 import { translateWithLibre } from './libre-translate.js';
 
@@ -108,26 +104,15 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
 
   /*
    * Determine which provider to use. The setting is stored as a string
-   * like "google", "openai", "claude", or "libre".
+   * like "openai", "claude", or "libre".
    */
-  const provider = settings.translationProvider || 'libre';
+  const requestedProvider = settings.translationProvider || 'libre';
+  const provider = requestedProvider === 'google' ? 'libre' : requestedProvider;
 
   let result;
 
   try {
     switch (provider) {
-      case 'google': {
-        const apiKey = settings.googleTranslateApiKey;
-        if (!apiKey) {
-          throw new Error(
-            'Google Cloud Translation requires an API key. ' +
-            'Please add your key in the extension settings.'
-          );
-        }
-        result = await translateWithGoogle(filteredTexts, sourceLang, targetLang, apiKey);
-        break;
-      }
-
       case 'openai': {
         const apiKey = settings.openaiApiKey;
         if (!apiKey) {
@@ -212,6 +197,9 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
          * LibreTranslate is the free fallback — no API key needed.
          * If the user hasn't configured anything, we land here.
          */
+        if (requestedProvider === 'google') {
+          console.warn('[VisionTranslate] Google Cloud Translation has been removed. Falling back to LibreTranslate.');
+        }
         result = await translateWithLibre(filteredTexts, sourceLang, targetLang);
         break;
       }

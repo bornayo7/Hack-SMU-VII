@@ -1,173 +1,67 @@
-/**
- * TranslateSettings.jsx — Translation provider selector for VisionTranslate.
- *
- * WHAT THIS DOES:
- * After OCR extracts text from an image, we need to translate it. This component
- * lets the user choose which translation service to use and configure its
- * credentials.
- *
- * AVAILABLE PROVIDERS:
- *
- *   Google Cloud Translation
- *   - Google's commercial translation API. Supports 100+ languages.
- *   - Requires a Google Cloud API key with Translation API enabled.
- *   - Can share the same API key as Google Cloud Vision if both are enabled.
- *
- *   OpenAI (GPT)
- *   - Uses OpenAI's chat completion API for translation. GPT-4 produces very
- *     natural-sounding translations, especially for nuanced or literary text.
- *   - Requires an OpenAI API key.
- *   - User can select which model to use (gpt-4, gpt-4o, gpt-3.5-turbo).
- *
- *   Claude (Anthropic)
- *   - Uses Anthropic's Claude API. Claude excels at maintaining context and
- *     tone in translations, particularly for longer passages.
- *   - Requires an Anthropic API key.
- *   - User can select which model to use (claude-3-opus, claude-3-sonnet, etc.).
- *
- *   LibreTranslate / MyMemory
- *   - Free, open-source translation. No API key needed for MyMemory (rate-limited).
- *   - LibreTranslate can be self-hosted or used via public instances.
- *   - Less accurate than commercial options but completely free.
- *
- * PROPS:
- *   provider                  — Currently selected provider ID
- *   onProviderChange          — Callback when provider changes
- *   openaiApiKey              — Current OpenAI API key
- *   onOpenaiApiKeyChange      — Callback for OpenAI key changes
- *   claudeApiKey              — Current Claude API key
- *   onClaudeApiKeyChange      — Callback for Claude key changes
- *   googleCloudApiKey         — Current Google Cloud API key
- *   onGoogleCloudApiKeyChange — Callback for Google key changes
- *   llmModel                  — Currently selected LLM model
- *   onLlmModelChange          — Callback when LLM model changes
- */
-
 import React from "react";
 import ApiKeyInput from "./ApiKeyInput.jsx";
 
-/**
- * PROVIDER_OPTIONS — Available translation services.
- * Each entry has an id, display name, description, and whether it needs
- * an API key or supports model selection.
- */
-const PROVIDER_OPTIONS = [
-  {
-    id: "google",
-    name: "Google Cloud Translation",
-    description:
-      "Fast, reliable translation API supporting 100+ languages. Great for most use cases.",
-    needsApiKey: "google",
-    needsModel: false,
-  },
+export const PROVIDER_OPTIONS = [
   {
     id: "openai",
-    name: "OpenAI (GPT)",
-    description:
-      "LLM-powered translation. Produces natural, context-aware translations. Best for literary or nuanced text.",
+    name: "OpenAI",
+    description: "Natural, context-aware translations for nuanced dialogue.",
     needsApiKey: "openai",
     needsModel: true,
+    badges: ["LLM"],
   },
   {
     id: "claude",
-    name: "Claude (Anthropic)",
-    description:
-      "Anthropic's LLM. Excellent at preserving tone and context across longer passages.",
+    name: "Claude",
+    description: "Strong at preserving tone across longer or denser passages.",
     needsApiKey: "claude",
     needsModel: true,
+    badges: ["LLM"],
   },
   {
     id: "gemini",
-    name: "Google Gemini",
-    description:
-      "Google's latest LLM. Fast, capable, and cost-effective. Great for manga and general translation.",
+    name: "Gemini",
+    description: "Fast general-purpose model with a good quality-to-cost balance.",
     needsApiKey: "gemini",
     needsModel: true,
+    badges: ["LLM", "Fast"],
   },
   {
     id: "custom",
-    name: "Custom API (OpenAI-compatible)",
-    description:
-      "Connect to any OpenAI-compatible API endpoint. Works with local LLMs (Ollama, LM Studio), Azure OpenAI, or any other compatible service.",
+    name: "Custom OpenAI-compatible API",
+    description: "Works with local or hosted APIs that speak the OpenAI chat format.",
     needsApiKey: "custom",
     needsModel: false,
+    badges: ["Custom"],
   },
   {
     id: "libre",
     name: "LibreTranslate / MyMemory",
-    description:
-      "Free and open-source. No API key needed. Less accurate but great for quick translations.",
+    description: "Free fallback with no key required and simpler setup.",
     needsApiKey: null,
     needsModel: false,
+    badges: ["Free"],
   },
 ];
 
-/**
- * MODEL_OPTIONS — Available models for LLM-based providers.
- * Grouped by provider so we can show the relevant models.
- */
 const MODEL_OPTIONS = {
   openai: [
-    { id: "gpt-4", name: "GPT-4", description: "Most capable, slower" },
-    {
-      id: "gpt-4o",
-      name: "GPT-4o",
-      description: "Fast and capable, recommended",
-    },
-    {
-      id: "gpt-4o-mini",
-      name: "GPT-4o Mini",
-      description: "Fastest, good for simple text",
-    },
-    {
-      id: "gpt-3.5-turbo",
-      name: "GPT-3.5 Turbo",
-      description: "Legacy, cheapest option",
-    },
+    { id: "gpt-4o", name: "GPT-4o" },
+    { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+    { id: "gpt-4", name: "GPT-4" },
+    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
   ],
   claude: [
-    {
-      id: "claude-sonnet-4-20250514",
-      name: "Claude Sonnet 4",
-      description: "Balanced speed and quality",
-    },
-    {
-      id: "claude-3-5-sonnet-20241022",
-      name: "Claude 3.5 Sonnet",
-      description: "Fast, high quality",
-    },
-    {
-      id: "claude-3-opus-20240229",
-      name: "Claude 3 Opus",
-      description: "Most capable, slower",
-    },
-    {
-      id: "claude-3-haiku-20240307",
-      name: "Claude 3 Haiku",
-      description: "Fastest, lightweight tasks",
-    },
+    { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
+    { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
+    { id: "claude-3-opus-20240229", name: "Claude 3 Opus" },
+    { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku" },
   ],
   gemini: [
-    {
-      id: "gemini-2.5-flash",
-      name: "Gemini 2.5 Flash",
-      description: "Latest, fast and smart, recommended",
-    },
-    {
-      id: "gemini-2.0-flash",
-      name: "Gemini 2.0 Flash",
-      description: "Fast and cost-effective",
-    },
-    {
-      id: "gemini-2.5-pro-preview-06-05",
-      name: "Gemini 2.5 Pro",
-      description: "Most capable, slower",
-    },
-    {
-      id: "gemini-1.5-flash",
-      name: "Gemini 1.5 Flash",
-      description: "Lightweight, cheapest option",
-    },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
+    { id: "gemini-2.5-pro-preview-06-05", name: "Gemini 2.5 Pro" },
+    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
   ],
 };
 
@@ -180,8 +74,6 @@ export default function TranslateSettings({
   onClaudeApiKeyChange,
   geminiApiKey,
   onGeminiApiKeyChange,
-  googleCloudApiKey,
-  onGoogleCloudApiKeyChange,
   llmModel,
   onLlmModelChange,
   customApiKey,
@@ -191,67 +83,56 @@ export default function TranslateSettings({
   customModelName,
   onCustomModelNameChange,
 }) {
-  // Find the currently selected provider's metadata
-  const selectedProvider = PROVIDER_OPTIONS.find((opt) => opt.id === provider);
-
-  // Get the model list for the selected provider (if applicable)
+  const selectedProvider = PROVIDER_OPTIONS.find((option) => option.id === provider);
   const models = MODEL_OPTIONS[provider] || [];
 
   return (
-    <div className="translate-settings">
-      {/*
-        Dropdown selector for the translation provider.
-        Using a <select> instead of radio buttons here because the descriptions
-        are longer and a dropdown keeps the UI more compact.
-      */}
-      <div className="form-group">
-        <label className="form-label" htmlFor="translation-provider">
-          Translation Service
-        </label>
-        <select
-          id="translation-provider"
-          className="form-select"
-          value={provider}
-          onChange={(e) => onProviderChange(e.target.value)}
-        >
-          {PROVIDER_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.name}
-            </option>
-          ))}
-        </select>
+    <div className="choice-section">
+      <div
+        className="choice-list"
+        role="radiogroup"
+        aria-label="Translation provider"
+      >
+        {PROVIDER_OPTIONS.map((option) => (
+          <label
+            key={option.id}
+            className={`choice-card ${provider === option.id ? "is-selected" : ""}`}
+          >
+            <input
+              type="radio"
+              name="translationProvider"
+              className="choice-input"
+              value={option.id}
+              checked={provider === option.id}
+              onChange={() => onProviderChange(option.id)}
+            />
 
-        {/* Show the selected provider's description */}
-        {selectedProvider && (
-          <p className="form-hint">{selectedProvider.description}</p>
-        )}
+            <div className="choice-body">
+              <div className="choice-header">
+                <span className="choice-title">{option.name}</span>
+
+                <div className="choice-badges">
+                  {option.badges.map((badge) => (
+                    <span
+                      key={`${option.id}-${badge}`}
+                      className="capability-badge capability-badge--provider"
+                    >
+                      {badge}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <p className="choice-description">{option.description}</p>
+            </div>
+          </label>
+        ))}
       </div>
 
-      {/*
-        Conditional: Show API key input based on the selected provider.
-        Each provider that needs a key specifies which key it uses via
-        the "needsApiKey" field.
-      */}
-      {selectedProvider && selectedProvider.needsApiKey === "google" && (
-        <div className="conditional-config fade-in">
+      {selectedProvider?.needsApiKey === "openai" && (
+        <div className="config-card fade-in">
           <ApiKeyInput
-            label="Google Cloud Translation API Key"
-            placeholder="AIza..."
-            storageKey="googleCloudApiKey"
-            value={googleCloudApiKey}
-            onChange={onGoogleCloudApiKeyChange}
-          />
-          <p className="form-hint">
-            If you already entered a Google Cloud key for Vision OCR, the same
-            key works here (as long as the Translation API is also enabled).
-          </p>
-        </div>
-      )}
-
-      {selectedProvider && selectedProvider.needsApiKey === "openai" && (
-        <div className="conditional-config fade-in">
-          <ApiKeyInput
-            label="OpenAI API Key"
+            label="OpenAI API key"
             placeholder="sk-..."
             storageKey="openaiApiKey"
             value={openaiApiKey}
@@ -260,10 +141,10 @@ export default function TranslateSettings({
         </div>
       )}
 
-      {selectedProvider && selectedProvider.needsApiKey === "claude" && (
-        <div className="conditional-config fade-in">
+      {selectedProvider?.needsApiKey === "claude" && (
+        <div className="config-card fade-in">
           <ApiKeyInput
-            label="Anthropic (Claude) API Key"
+            label="Anthropic API key"
             placeholder="sk-ant-..."
             storageKey="claudeApiKey"
             value={claudeApiKey}
@@ -272,78 +153,75 @@ export default function TranslateSettings({
         </div>
       )}
 
-      {selectedProvider && selectedProvider.needsApiKey === "gemini" && (
-        <div className="conditional-config fade-in">
+      {selectedProvider?.needsApiKey === "gemini" && (
+        <div className="config-card fade-in">
           <ApiKeyInput
-            label="Google Gemini API Key"
+            label="Gemini API key"
             placeholder="AIza..."
             storageKey="geminiApiKey"
             value={geminiApiKey}
             onChange={onGeminiApiKeyChange}
           />
           <p className="form-hint">
-            Get your key at{" "}
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
-              aistudio.google.com/apikey
+            Create one in{" "}
+            <a
+              href="https://aistudio.google.com/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Google AI Studio
             </a>
+            .
           </p>
         </div>
       )}
 
-      {selectedProvider && selectedProvider.needsApiKey === "custom" && (
-        <div className="conditional-config fade-in">
+      {selectedProvider?.needsApiKey === "custom" && (
+        <div className="config-card fade-in">
           <div className="form-group">
             <label className="form-label" htmlFor="custom-base-url">
-              API Base URL
+              API base URL
             </label>
             <input
               id="custom-base-url"
               type="url"
               className="form-input"
               value={customBaseUrl || ""}
-              onChange={(e) => onCustomBaseUrlChange(e.target.value)}
+              onChange={(event) => onCustomBaseUrlChange(event.target.value)}
               placeholder="http://localhost:11434/v1"
             />
-            <p className="form-hint">
-              The base URL of your OpenAI-compatible API (e.g.,
-              http://localhost:11434/v1 for Ollama, http://localhost:1234/v1 for
-              LM Studio).
-            </p>
           </div>
+
           <ApiKeyInput
-            label="API Key (optional for local servers)"
-            placeholder="Enter API key..."
+            label="API key"
+            placeholder="Optional for local servers"
             storageKey="customApiKey"
             value={customApiKey}
             onChange={onCustomApiKeyChange}
           />
+
           <div className="form-group">
             <label className="form-label" htmlFor="custom-model-name">
-              Model Name
+              Model name
             </label>
             <input
               id="custom-model-name"
               type="text"
               className="form-input"
               value={customModelName || ""}
-              onChange={(e) => onCustomModelNameChange(e.target.value)}
-              placeholder="llama3, mistral, gpt-4o, etc."
+              onChange={(event) => onCustomModelNameChange(event.target.value)}
+              placeholder="llama3, mistral, gpt-4o..."
             />
             <p className="form-hint">
-              The model identifier your API expects (e.g., llama3 for Ollama,
-              or a deployment name for Azure OpenAI).
+              Useful for Ollama, LM Studio, hosted compatible APIs, or Azure
+              deployments.
             </p>
           </div>
         </div>
       )}
 
-      {/*
-        Conditional: Model selector for LLM-based providers.
-        Only shown when the selected provider supports model selection
-        (OpenAI and Claude).
-      */}
-      {selectedProvider && selectedProvider.needsModel && models.length > 0 && (
-        <div className="conditional-config fade-in">
+      {selectedProvider?.needsModel && models.length > 0 && (
+        <div className="config-card fade-in">
           <div className="form-group">
             <label className="form-label" htmlFor="llm-model">
               Model
@@ -352,31 +230,27 @@ export default function TranslateSettings({
               id="llm-model"
               className="form-select"
               value={llmModel}
-              onChange={(e) => onLlmModelChange(e.target.value)}
+              onChange={(event) => onLlmModelChange(event.target.value)}
             >
               {models.map((model) => (
                 <option key={model.id} value={model.id}>
-                  {model.name} — {model.description}
+                  {model.name}
                 </option>
               ))}
             </select>
             <p className="form-hint">
-              More capable models produce better translations but are slower and
-              more expensive. For most text, the recommended option is a good
-              balance.
+              Faster models keep the extension snappy. Larger models usually
+              read tone and context better.
             </p>
           </div>
         </div>
       )}
 
-      {/*
-        Info note for the free provider — no config needed.
-      */}
-      {selectedProvider && selectedProvider.needsApiKey === null && (
-        <div className="conditional-config fade-in">
+      {selectedProvider?.needsApiKey === null && (
+        <div className="config-card fade-in">
           <p className="form-hint">
-            No API key required. MyMemory allows up to 5,000 characters/day for
-            free. For higher limits, you can self-host LibreTranslate.
+            No key is required here. Use this when you want quick setup or a
+            fallback provider without extra credentials.
           </p>
         </div>
       )}

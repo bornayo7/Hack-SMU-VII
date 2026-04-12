@@ -331,8 +331,40 @@ export const TEXT_RENDER_TUNING = {
   titleCenterWordThreshold: 10
 };
 
+const OVERLAY_FONT_STACKS = {
+  sans:
+    '"Segoe UI", "Helvetica Neue", "Arial Nova", Arial, "Noto Sans", "Noto Sans CJK SC", sans-serif',
+  serif:
+    '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Times New Roman", serif',
+  manga:
+    '"Comic Neue", "Trebuchet MS", Verdana, "Noto Sans", "Noto Sans CJK SC", sans-serif',
+  mono:
+    '"SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace'
+};
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function resolveOverlayFontFamily(settings = {}) {
+  const fontPreference = settings.overlayFontFamily || settings.fontOverride || 'sans';
+  return OVERLAY_FONT_STACKS[fontPreference] || fontPreference;
+}
+
+function resolveOverlayMinFontSize(settings = {}) {
+  const parsed = Number(settings.overlayMinFontSize);
+  if (!Number.isFinite(parsed)) {
+    return TEXT_RENDER_TUNING.minFontSize;
+  }
+  return clamp(parsed, TEXT_RENDER_TUNING.minFontSize, 24);
+}
+
+function resolveOverlayAlignment(block, settings = {}) {
+  const preferredAlignment = settings.overlayTextAlign;
+  if (preferredAlignment === 'left' || preferredAlignment === 'center' || preferredAlignment === 'right') {
+    return preferredAlignment;
+  }
+  return block.alignment || 'left';
 }
 
 function rangeOverlap(startA, endA, startB, endB) {
@@ -839,8 +871,8 @@ function wrapText(ctx, text, maxWidth) {
  * @returns {{fontSize: number, lines: string[], lineHeight: number}}
  *          The best font size and layout metrics for the text block.
  */
-function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
-  const minFontSize = TEXT_RENDER_TUNING.minFontSize;
+function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical, minFontSizeOverride) {
+  const minFontSize = Math.max(TEXT_RENDER_TUNING.minFontSize, minFontSizeOverride || TEXT_RENDER_TUNING.minFontSize);
   const maxFontSize = Math.min(
     TEXT_RENDER_TUNING.maxFontSize,
     isVertical ? maxWidth : Math.max(maxWidth, maxHeight)
@@ -1030,7 +1062,7 @@ function shouldRenderVertical(text, boxWidth, boxHeight) {
  *        Array of translated strings, in the same order as ocrResults.
  *        translations[i] is the translation of ocrResults[i].text.
  */
-export function renderTranslation(canvas, originalImage, ocrResults, translations) {
+export function renderTranslation(canvas, originalImage, ocrResults, translations, settings = {}) {
   const ctx = canvas.getContext('2d');
 
   /*
@@ -1084,7 +1116,9 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    * automatically fall back to appropriate fonts (like Noto Sans CJK
    * or system CJK fonts).
    */
-  const fontFamily = '"Comic Neue", "Comic Sans MS", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", "Noto Sans CJK SC", sans-serif';
+  const fontFamily = resolveOverlayFontFamily(settings);
+  const minimumFontSize = resolveOverlayMinFontSize(settings);
+  const showConfidenceBorders = settings.showConfidenceBorders !== false;
 
   /*
    * Clear the overlay canvas before drawing. This removes any previous
@@ -1171,8 +1205,9 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
 
     const isVertical =
       ocr.orientation === 'vertical' && shouldRenderVertical(translatedText, innerWidth, innerHeight);
+    const textAlignment = resolveOverlayAlignment(ocr, settings);
     const { fontSize, lines, lineHeight } = autoSizeFont(
-      ctx, translatedText, innerWidth, innerHeight, fontFamily, isVertical
+      ctx, translatedText, innerWidth, innerHeight, fontFamily, isVertical, minimumFontSize
     );
 
     /*
@@ -1226,14 +1261,14 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
        * Standard left-to-right, top-to-bottom, reflowed inside the merged block.
        */
       const totalTextHeight = lines.length * lineHeight;
-      const shouldCenterVertically = ocr.alignment === 'center' && lines.length <= 2;
+      const shouldCenterVertically = textAlignment === 'center' && lines.length <= 2;
       const startY = shouldCenterVertically
         ? box.y + innerPadding + Math.max(0, (innerHeight - totalTextHeight) / 2)
         : box.y + innerPadding;
 
-      if (ocr.alignment === 'center') {
+      if (textAlignment === 'center') {
         ctx.textAlign = 'center';
-      } else if (ocr.alignment === 'right') {
+      } else if (textAlignment === 'right') {
         ctx.textAlign = 'right';
       } else {
         ctx.textAlign = 'left';
@@ -1242,9 +1277,9 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
         const line = lines[lineIdx];
         const lineX =
-          ocr.alignment === 'center'
+          textAlignment === 'center'
             ? box.x + innerPadding + innerWidth / 2
-            : ocr.alignment === 'right'
+            : textAlignment === 'right'
               ? box.x + innerPadding + innerWidth
               : box.x + innerPadding;
         const lineY = startY + lineIdx * lineHeight;
@@ -1266,7 +1301,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * Only show a thin bottom border (not a full rectangle) to keep
      * the overlay clean while still signaling confidence.
      */
-    if (ocr.confidence !== undefined && ocr.confidence < 0.7) {
+    if (showConfidenceBorders && ocr.confidence !== undefined && ocr.confidence < 0.7) {
       ctx.strokeStyle = 'rgba(255, 193, 7, 0.5)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1281,7 +1316,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
         rawCount: ocr.rawIds?.length || 1,
         renderBox: box,
         cleanupBox,
-        alignment: ocr.alignment || 'left',
+        alignment: textAlignment,
         fontSize: Number(fontSize.toFixed(2)),
         lineHeight: Number(lineHeight.toFixed(2)),
         lineCount: lines.length

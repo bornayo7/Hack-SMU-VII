@@ -109,9 +109,10 @@ const DEFAULT_SETTINGS = {
    *
    * Options:
    *   'libre'    — LibreTranslate / MyMemory (free, no API key needed).
-   *   'google'   — Google Cloud Translation API (requires API key).
    *   'openai'   — OpenAI GPT translation (requires API key).
    *   'claude'   — Anthropic Claude translation (requires API key).
+   *   'gemini'   — Google Gemini translation (requires API key).
+   *   'custom'   — OpenAI-compatible custom API endpoint.
    *
    * Default: 'libre' — works out of the box, no setup needed.
    */
@@ -124,6 +125,16 @@ const DEFAULT_SETTINGS = {
    * Default: 'http://localhost:8000' — standard local development.
    */
   backendUrl: 'http://localhost:8000',
+
+  /* API keys and provider-specific settings */
+  googleCloudApiKey: '',
+  openaiApiKey: '',
+  claudeApiKey: '',
+  geminiApiKey: '',
+  customApiKey: '',
+  customBaseUrl: '',
+  customModelName: '',
+  llmModel: 'gemini-2.0-flash',
 
   /*
    * minImageWidth / minImageHeight: Minimum dimensions (in pixels) for
@@ -179,13 +190,14 @@ const DEFAULT_SETTINGS = {
   ocrEngine: 'tesseract',
 
   /*
-   * fontOverride: Optional CSS font family to use for rendered text
-   * instead of the auto-detected system fonts. Empty string means
-   * use the default font stack.
-   *
-   * Default: '' (empty) — use system fonts.
+   * Overlay text appearance and interface preferences.
    */
   fontOverride: '',
+  overlayFontFamily: 'sans',
+  overlayMinFontSize: 10,
+  overlayTextAlign: 'auto',
+  darkMode: false,
+  contextSharingEnabled: false,
 
   /*
    * overlayOpacity: Opacity of the translation overlay (0.0 to 1.0).

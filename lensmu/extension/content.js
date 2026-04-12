@@ -100,14 +100,14 @@ let currentSettings = {};
  *   showingTranslation: boolean    — Whether translation or original is showing
  * }
  */
-const imageOverlays = new WeakMap();
+let imageOverlays = new WeakMap();
 
 /*
  * Set of image elements we have already processed or are currently
  * processing. Prevents duplicate processing if the MutationObserver
  * fires multiple times for the same image.
  */
-const processedImages = new WeakSet();
+let processedImages = new WeakSet();
 
 /* Reference to the MutationObserver so we can disconnect it on deactivate */
 let pageObserver = null;
@@ -862,7 +862,13 @@ async function processImage(imageInfo) {
       }
     }
 
-    overlayModule.renderTranslation(canvas, sourceImage, mergedOcrResults, translations);
+    overlayModule.renderTranslation(
+      canvas,
+      sourceImage,
+      mergedOcrResults,
+      translations,
+      currentSettings
+    );
 
     /*
      * Set up hover detection for showing original text tooltips.
@@ -1552,6 +1558,9 @@ function cleanupAll() {
     pageObserver = null;
   }
 
+  imageOverlays = new WeakMap();
+  processedImages = new WeakSet();
+
   /*
    * Note: We cannot clear the WeakMap and WeakSet explicitly, but
    * since they use weak references, entries will be garbage-collected
@@ -1604,6 +1613,24 @@ async function activate(settings) {
   } else {
     updateToolbarStatus(`Found ${imageCount} images — hover to translate`);
   }
+}
+
+async function translateCurrentPage(settings, statusMessage = 'Translating all images...') {
+  const nextSettings = settings || currentSettings || {};
+
+  if (isActive) {
+    currentSettings = nextSettings;
+    cleanupAll();
+    isActive = true;
+    createToolbar();
+    setupMutationObserver();
+    addTranslateIcons();
+  } else {
+    await activate(nextSettings);
+  }
+
+  updateToolbarStatus(statusMessage);
+  await processAllImages();
 }
 
 /*
@@ -1662,6 +1689,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    case 'TRANSLATE_ALL_IMAGES': {
+      const settings = payload?.settings || message.settings || currentSettings;
+      translateCurrentPage(settings)
+        .then(() => {
+          updateToolbarStatus('Translation complete');
+          sendResponse({ success: true });
+        })
+        .catch((error) => {
+          console.error('[VisionTranslate] TRANSLATE_ALL_IMAGES failed:', error);
+          sendResponse({ success: false, error: error.message });
+        });
+      return true;
+    }
+
     /*
      * DEACTIVATE: Stop translation and clean up all overlays.
      */
@@ -1677,8 +1718,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
      * re-translate with the new target language.
      */
     case 'SETTINGS_UPDATED': {
-      const oldLang = currentSettings.targetLanguage;
+      const previousSettings = currentSettings;
       currentSettings = payload?.settings || currentSettings;
+      const visualSettingsChanged =
+        previousSettings.overlayFontFamily !== currentSettings.overlayFontFamily ||
+        previousSettings.overlayMinFontSize !== currentSettings.overlayMinFontSize ||
+        previousSettings.overlayTextAlign !== currentSettings.overlayTextAlign ||
+        previousSettings.showConfidenceBorders !== currentSettings.showConfidenceBorders;
 
       /*
        * If the target language changed, re-process all images with
@@ -1686,14 +1732,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
        * too) but keeps the code simple. A production version would
        * cache OCR results and only re-translate.
        */
-      if (isActive && oldLang !== currentSettings.targetLanguage) {
-        cleanupAll();
-        createToolbar();
-        setupMutationObserver();
-        updateToolbarStatus('Re-translating with new language...');
-        processAllImages().then(() => {
-          updateToolbarStatus('Translation complete');
-        });
+      if (
+        isActive &&
+        (previousSettings.targetLanguage !== currentSettings.targetLanguage ||
+          visualSettingsChanged)
+      ) {
+        const statusMessage =
+          previousSettings.targetLanguage !== currentSettings.targetLanguage
+            ? 'Re-translating with new language...'
+            : 'Refreshing overlay styling...';
+
+        translateCurrentPage(currentSettings, statusMessage)
+          .then(() => {
+            updateToolbarStatus('Translation complete');
+            sendResponse({ success: true });
+          })
+          .catch((error) => {
+            console.error('[VisionTranslate] SETTINGS_UPDATED refresh failed:', error);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true;
       }
 
       sendResponse({ success: true });

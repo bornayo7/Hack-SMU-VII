@@ -30,7 +30,6 @@
     "<all_urls>",
     "https://cdn.jsdelivr.net/*",
     "http://localhost:8000/*",
-    "https://translation.googleapis.com/*",
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",

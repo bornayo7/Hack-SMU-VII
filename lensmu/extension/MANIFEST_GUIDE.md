@@ -27,7 +27,6 @@ Chrome shows these in: toolbar, extensions page, Chrome Web Store.
 ## host_permissions
 Grants the extension permission to make fetch requests to these origins (bypasses CORS):
 - `localhost:8000` — Local Python backend for OCR
-- `translation.googleapis.com` — Google Cloud Translation API
 - `api.openai.com` — OpenAI API for LLM translation
 - `api.anthropic.com` — Claude API for LLM translation
 - `api.mymemory.translated.net` — Free MyMemory translation
