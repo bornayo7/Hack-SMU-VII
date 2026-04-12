@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = {
   overlayMinFontSize: 10,
   overlayTextAlign: "auto",
   contextSharingEnabled: false,
+  prefetchTranslations: false,
 };
 
 const TAB_ITEMS = [
@@ -568,6 +569,20 @@ export default function App() {
                   </select>
                 </div>
               </div>
+
+              <div className="card-divider" />
+
+              <ToggleRow
+                label="Pre-translate images"
+                description="Automatically process images in the background so translations are ready instantly."
+                checked={Boolean(settings.prefetchTranslations)}
+                onToggle={() =>
+                  updateSetting(
+                    "prefetchTranslations",
+                    !settings.prefetchTranslations
+                  )
+                }
+              />
 
               <div className="card-divider" />
 

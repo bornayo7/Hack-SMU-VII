@@ -634,6 +634,43 @@ function createOverlay(imageElement) {
   const canvas = document.createElement('canvas');
   canvas.className = `${CLASS_PREFIX}-canvas`;
 
+  /* Add toggle logic for translation visibility */
+  function toggleTranslationOverlay(e) {
+    const overlay = imageOverlays.get(imageElement);
+    if (!overlay || !overlay.translations || overlay.translations.length === 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    overlay.showingTranslation = !overlay.showingTranslation;
+    canvas.style.opacity = overlay.showingTranslation ? "1" : "0";
+    canvas.style.pointerEvents = overlay.showingTranslation ? "auto" : "none";
+
+    /* Update icon if present */
+    for (const { icon, iconContainer, anchor } of translateIcons) {
+      if (anchor.contains(imageElement) || anchor === imageElement) {
+        if (overlay.showingTranslation) {
+          icon.innerHTML = "✓";
+          icon.style.background = "rgba(34, 197, 94, 0.9)";
+          setTimeout(() => { if (!icon.dataset.translating && iconContainer) iconContainer.style.opacity = "0"; }, 2000);
+        } else {
+          icon.innerHTML = "文A";
+          icon.style.background = "rgba(59, 130, 246, 0.9)";
+        }
+        break;
+      }
+    }
+  }
+
+  canvas.addEventListener("click", toggleTranslationOverlay);
+  wrapper.addEventListener("click", (e) => {
+    if (e.target.closest(`.${CLASS_PREFIX}-translate-icon`)) return;
+    const overlay = imageOverlays.get(imageElement);
+    if (overlay && !overlay.showingTranslation && overlay.translations?.length > 0) {
+      toggleTranslationOverlay(e);
+    }
+  });
+
   /*
    * Device pixel ratio: On Retina/HiDPI screens this is 2 or 3,
    * meaning each CSS pixel corresponds to 2 or 3 physical pixels.
@@ -687,8 +724,9 @@ function createOverlay(imageElement) {
  * @param {{element: HTMLElement, type: string, url: string|null}} imageInfo
  *        The image descriptor from scanForImages()
  */
-async function processImage(imageInfo) {
+async function processImage(imageInfo, options = { prefetch: false }) {
   const { element, type, url } = imageInfo;
+  const isPrefetch = options.prefetch;
 
   /* Mark as processed to prevent duplicate work */
   processedImages.add(element);
@@ -898,13 +936,18 @@ async function processImage(imageInfo) {
      * (e.g., to toggle between original and translated text, or to
      * clean up when deactivating).
      */
+    const initialVisibility = !isPrefetch;
+    canvas.style.opacity = initialVisibility ? "1" : "0";
+    canvas.style.pointerEvents = initialVisibility ? "auto" : "none";
+    canvas.style.transition = "opacity 0.2s ease";
+
     imageOverlays.set(element, {
       canvas,
       wrapper,
       ocrResults: mergedOcrResults,
       rawOcrResults,
       translations,
-      showingTranslation: true
+      showingTranslation: initialVisibility
     });
 
     /*
@@ -1019,16 +1062,27 @@ function addTranslateIcons() {
       iconAnchor = parent;
     }
 
-    /* Create the translate icon button */
-    const icon = document.createElement('button');
-    icon.className = `${CLASS_PREFIX}-translate-icon`;
-    icon.title = 'Translate this image';
-    icon.innerHTML = '文A';
-    icon.style.cssText = `
+    /* Create the translate icon container */
+    const iconContainer = document.createElement("div");
+    iconContainer.className = `${CLASS_PREFIX}-translate-icon-container`;
+    iconContainer.style.cssText = `
       position: absolute;
       top: 8px;
       right: 8px;
       z-index: 2147483646;
+      display: flex;
+      flex-direction: row-reverse;
+      gap: 8px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+    `;
+
+    const icon = document.createElement("button");
+    icon.className = `${CLASS_PREFIX}-translate-icon`;
+    icon.title = "Translate this image";
+    icon.innerHTML = "文A";
+    icon.style.cssText = `
       width: 36px;
       height: 36px;
       border-radius: 50%;
@@ -1042,18 +1096,63 @@ function addTranslateIcons() {
       display: flex;
       align-items: center;
       justify-content: center;
-      opacity: 0;
-      transition: opacity 0.2s ease, transform 0.15s ease;
       pointer-events: auto;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
       line-height: 1;
       padding: 0;
+      transition: transform 0.15s ease;
     `;
 
+    const translateAllBtn = document.createElement("button");
+    translateAllBtn.className = `${CLASS_PREFIX}-translate-all-btn`;
+    translateAllBtn.title = "Translate all images on this page";
+    translateAllBtn.innerHTML = "Translate All";
+    translateAllBtn.style.cssText = `
+      height: 36px;
+      border-radius: 18px;
+      border: 2px solid rgba(255,255,255,0.8);
+      background: rgba(100, 116, 139, 0.9);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      padding: 0 12px;
+      opacity: 0;
+      transform: translateX(10px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    `;
+
+    iconContainer.appendChild(icon);
+    iconContainer.appendChild(translateAllBtn);
+
+    iconContainer.addEventListener("mouseenter", () => {
+      translateAllBtn.style.opacity = "1";
+      translateAllBtn.style.transform = "translateX(0)";
+    });
+    iconContainer.addEventListener("mouseleave", () => {
+      translateAllBtn.style.opacity = "0";
+      translateAllBtn.style.transform = "translateX(10px)";
+    });
+
+    translateAllBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      translateAllBtn.innerHTML = "Translating...";
+      await processAllImages();
+      translateAllBtn.innerHTML = "Done ✓";
+      setTimeout(() => { translateAllBtn.innerHTML = "Translate All"; }, 2000);
+    });
+
     /* Show icon on hover over the image area */
-    const showIcon = () => { icon.style.opacity = '1'; };
+    const showIcon = () => { iconContainer.style.opacity = "1"; };
     const hideIcon = () => {
-      if (!icon.dataset.translating) icon.style.opacity = '0';
+      if (!icon.dataset.translating) iconContainer.style.opacity = "0";
     };
 
     iconAnchor.addEventListener('mouseenter', showIcon);
@@ -1063,6 +1162,18 @@ function addTranslateIcons() {
     icon.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      const overlay = imageOverlays.get(imageInfo.element);
+      if (overlay && overlay.translations && overlay.translations.length > 0) {
+        overlay.showingTranslation = true;
+        overlay.canvas.style.opacity = "1";
+        overlay.canvas.style.pointerEvents = "auto";
+
+        icon.innerHTML = "✓";
+        icon.style.background = "rgba(34, 197, 94, 0.9)";
+        setTimeout(() => { if (!icon.dataset.translating) iconContainer.style.opacity = "0"; }, 2000);
+        return;
+      }
 
       /* Visual feedback: show loading state */
       icon.dataset.translating = 'true';
@@ -1096,8 +1207,8 @@ function addTranslateIcons() {
       delete icon.dataset.translating;
     });
 
-    iconAnchor.appendChild(icon);
-    translateIcons.add({ icon, anchor: iconAnchor, showIcon, hideIcon });
+    iconAnchor.appendChild(iconContainer);
+    translateIcons.add({ icon, iconContainer, anchor: iconAnchor, showIcon, hideIcon });
   }
 }
 
@@ -1105,10 +1216,10 @@ function addTranslateIcons() {
  * Remove all translate icons from the page.
  */
 function removeTranslateIcons() {
-  for (const { icon, anchor, showIcon, hideIcon } of translateIcons) {
+  for (const { icon, iconContainer, anchor, showIcon, hideIcon } of translateIcons) {
     anchor.removeEventListener('mouseenter', showIcon);
     anchor.removeEventListener('mouseleave', hideIcon);
-    icon.remove();
+    if (iconContainer) iconContainer.remove(); else icon.remove();
   }
   translateIcons.clear();
 
@@ -1126,7 +1237,7 @@ function removeTranslateIcons() {
  * the number of images processed simultaneously to avoid overwhelming
  * the OCR backend and the browser.
  */
-async function processAllImages() {
+async function processAllImages(options = { prefetch: false }) {
   const images = scanForImages();
 
   if (images.length === 0) {
@@ -1156,7 +1267,7 @@ async function processAllImages() {
       const currentIndex = nextIndex;
       nextIndex++;
 
-      await processImage(images[currentIndex]);
+      await processImage(images[currentIndex], options);
 
       completedCount++;
 
@@ -1310,236 +1421,14 @@ function setupMutationObserver() {
  *         ...
  *       </div>
  */
-function createToolbar() {
-  /* Remove existing toolbar if present (e.g., from a previous activation) */
-  const existing = document.getElementById(`${CLASS_PREFIX}-toolbar-host`);
-  if (existing) {
-    existing.remove();
-  }
-
-  /*
-   * Create the host element. This is the only element visible in the
-   * page's DOM. Everything inside the shadow root is hidden from the
-   * page's JavaScript and CSS.
-   */
-  toolbarContainer = document.createElement('div');
-  toolbarContainer.id = `${CLASS_PREFIX}-toolbar-host`;
-
-  /*
-   * Use very specific inline styles on the host to ensure it's always
-   * visible and properly positioned, regardless of the page's CSS.
-   * These styles are on the HOST element (outside the shadow), so they
-   * ARE affected by the page's CSS. We use !important and very specific
-   * values to minimize conflicts.
-   */
-  toolbarContainer.style.cssText = `
-    position: fixed !important;
-    bottom: 20px !important;
-    right: 20px !important;
-    z-index: 2147483647 !important;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    font-size: 14px !important;
-    line-height: 1.4 !important;
-  `;
-
-  /*
-   * Attach a shadow root. { mode: 'open' } means JavaScript outside
-   * the shadow CAN access shadow internals via element.shadowRoot.
-   * { mode: 'closed' } would prevent that, but 'open' is fine for our
-   * use case and makes debugging easier.
-   */
-  const shadow = toolbarContainer.attachShadow({ mode: 'open' });
-
-  /*
-   * Define the toolbar HTML and CSS inside the shadow root.
-   * All of this is isolated from the page.
-   */
-  shadow.innerHTML = `
-    <style>
-      /*
-       * All styles here are SCOPED to the shadow root. They cannot
-       * affect the page, and the page's styles cannot affect us.
-       */
-
-      .toolbar {
-        background: #1a1a2e;
-        border-radius: 12px;
-        padding: 10px 14px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        color: #ffffff;
-        user-select: none;
-        /* Transition for smooth collapse/expand */
-        transition: all 0.3s ease;
-      }
-
-      .toolbar.collapsed {
-        padding: 6px 10px;
-      }
-
-      .toolbar-logo {
-        width: 24px;
-        height: 24px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 12px;
-        flex-shrink: 0;
-        cursor: pointer;
-      }
-
-      .toolbar-status {
-        font-size: 12px;
-        color: #a0a0b0;
-        white-space: nowrap;
-      }
-
-      .toolbar-btn {
-        background: none;
-        border: 1px solid #333355;
-        border-radius: 6px;
-        color: #ffffff;
-        padding: 4px 10px;
-        cursor: pointer;
-        font-size: 12px;
-        white-space: nowrap;
-        transition: background 0.2s, border-color 0.2s;
-      }
-
-      .toolbar-btn:hover {
-        background: #333355;
-        border-color: #667eea;
-      }
-
-      .toolbar-btn.active {
-        background: #667eea;
-        border-color: #667eea;
-      }
-
-      .toolbar-close {
-        background: none;
-        border: none;
-        color: #666680;
-        cursor: pointer;
-        font-size: 16px;
-        padding: 0 2px;
-        line-height: 1;
-        transition: color 0.2s;
-      }
-
-      .toolbar-close:hover {
-        color: #ff4444;
-      }
-
-      .toolbar-content {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        overflow: hidden;
-        transition: max-width 0.3s ease, opacity 0.3s ease;
-        max-width: 500px;
-        opacity: 1;
-      }
-
-      .toolbar.collapsed .toolbar-content {
-        max-width: 0;
-        opacity: 0;
-      }
-    </style>
-
-    <div class="toolbar" id="toolbar">
-      <div class="toolbar-logo" id="toolbar-logo" title="Click to collapse/expand">VT</div>
-      <div class="toolbar-content" id="toolbar-content">
-        <span class="toolbar-status" id="toolbar-status">Scanning images...</span>
-        <button class="toolbar-btn" id="btn-translate-all" title="Translate all images on this page">
-          Translate All
-        </button>
-        <button class="toolbar-btn active" id="btn-toggle" title="Show/hide translations">
-          Translations: ON
-        </button>
-        <button class="toolbar-close" id="btn-close" title="Close toolbar (translations stay active)">
-          &times;
-        </button>
-      </div>
-    </div>
-  `;
-
-  /*
-   * Wire up event handlers. We query within the shadow root, not the
-   * page document. shadow.getElementById works just like
-   * document.getElementById but scoped to the shadow.
-   */
-  const toolbar = shadow.getElementById('toolbar');
-  const logo = shadow.getElementById('toolbar-logo');
-  const translateAllBtn = shadow.getElementById('btn-translate-all');
-  const toggleBtn = shadow.getElementById('btn-toggle');
-  const closeBtn = shadow.getElementById('btn-close');
-
-  /* Logo click: collapse/expand the toolbar */
-  logo.addEventListener('click', () => {
-    toolbar.classList.toggle('collapsed');
-  });
-
-  /* Translate All button: process every image on the page */
-  translateAllBtn.addEventListener('click', async () => {
-    translateAllBtn.textContent = 'Translating...';
-    translateAllBtn.disabled = true;
-    updateToolbarStatus('Translating all images...');
-    await processAllImages();
-    translateAllBtn.textContent = 'Done ✓';
-    updateToolbarStatus('Translation complete');
-  });
-
-  /* Toggle button: show/hide all translation overlays */
-  toggleBtn.addEventListener('click', () => {
-    toggleAllOverlays();
-    const isShowing = toggleBtn.classList.toggle('active');
-    toggleBtn.textContent = `Translations: ${isShowing ? 'ON' : 'OFF'}`;
-  });
-
-  /* Close button: remove the toolbar (but keep translations active) */
-  closeBtn.addEventListener('click', () => {
-    toolbarContainer.remove();
-    toolbarContainer = null;
-  });
-
-  /*
-   * Add to the page root. The toolbar is fixed-position UI, not tied to any
-   * one image element, so mounting it on the document avoids scope issues and
-   * keeps it stable across different page layouts.
-   */
-  const mountTarget = document.body || document.documentElement;
-  if (!mountTarget) {
-    console.warn('[VisionTranslate] Could not find a document root for the toolbar');
-    return;
-  }
-
-  mountTarget.appendChild(toolbarContainer);
-
-  console.log('[VisionTranslate] Toolbar created');
-}
+function createToolbar() { /* Toolbar removed */ }
 
 /*
  * --------------------------------------------------------------------------
  * UI: Update toolbar status text
  * --------------------------------------------------------------------------
  */
-function updateToolbarStatus(text) {
-  if (!toolbarContainer) return;
-
-  const shadow = toolbarContainer.shadowRoot;
-  if (!shadow) return;
-
-  const statusEl = shadow.getElementById('toolbar-status');
-  if (statusEl) {
-    statusEl.textContent = text;
-  }
-}
+function updateToolbarStatus(text) { /* Toolbar removed */ }
 
 /*
  * --------------------------------------------------------------------------
@@ -1680,14 +1569,12 @@ async function activate(settings) {
    * individual icons to translate specific images, or use the
    * "Translate All" button in the toolbar to do them all at once.
    */
-  updateToolbarStatus('Scanning for images...');
   addTranslateIcons();
 
   const imageCount = translateIcons.size;
-  if (imageCount === 0) {
-    updateToolbarStatus('No translatable images found');
-  } else {
-    updateToolbarStatus(`Found ${imageCount} images — hover to translate`);
+
+  if (currentSettings.prefetchTranslations) {
+    processAllImages({ prefetch: true });
   }
 }
 
