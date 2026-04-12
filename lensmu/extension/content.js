@@ -986,6 +986,14 @@ async function processImage(imageInfo, options = { prefetch: false }) {
 
   } catch (error) {
     console.error('[VisionTranslate] Error processing image:', error);
+    
+    chrome.runtime.sendMessage({
+      action: 'FATAL_ERROR',
+      payload: {
+        // Provide a clean, readable error message for the user
+        errorMessage: `Failed to translate image: ${error.message}`
+      }
+    });
   }
 }
 

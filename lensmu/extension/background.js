@@ -1149,3 +1149,26 @@ async function toggleTranslation(tabId) {
 
   console.log(`[VisionTranslate] Translation ${state.active ? 'activated' : 'deactivated'} on tab ${tabId}${hostname ? ` (${hostname})` : ''}`);
 }
+
+// background.js
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'FATAL_ERROR') {
+    
+    // Create a unique ID for the notification so multiple errors don't overwrite each other immediately
+    const notificationId = `vt-error-${Date.now()}`;
+    
+    chrome.notifications.create(notificationId, {
+      type: 'basic',
+      iconUrl: 'icons/VT_KD_128.png', // MUST be a valid path to an icon in your extension
+      title: 'VisionTranslate Error',
+      message: message.payload.errorMessage || 'An unexpected fatal error occurred.',
+      priority: 2, // 2 is the highest priority, keeps the notification on screen longer
+    });
+
+    sendResponse({ success: true });
+    return false; // Synchronous response
+  }
+  
+  // ... your other background listeners
+});
