@@ -36,37 +36,24 @@ import OcrSettings from "./components/OcrSettings.jsx";
 import TranslateSettings from "./components/TranslateSettings.jsx";
 import LanguageSelector from "./components/LanguageSelector.jsx";
 
+// Storage key used by utils/storage.js — must match to share settings with background
+const SETTINGS_KEY = "vt_settings";
+
 /**
- * DEFAULT_SETTINGS — Fallback values used when no settings exist in storage yet
- * (i.e., the very first time the extension is installed). Each key corresponds
- * to a setting that the user can change in the popup UI.
+ * DEFAULT_SETTINGS — Fallback values used when no settings exist in storage yet.
+ * Must stay in sync with utils/storage.js DEFAULT_SETTINGS.
  */
 const DEFAULT_SETTINGS = {
-  // Which OCR engine to use for extracting text from images
-  ocrEngine: "paddleocr",
-
-  // Which translation service to use
-  translationProvider: "google",
-
-  // Source language: "auto" means auto-detect
+  ocrEngine: "tesseract",
+  translationProvider: "libre",
   sourceLanguage: "auto",
-
-  // Target language to translate into
   targetLanguage: "en",
-
-  // URL of the backend server that runs PaddleOCR / MangaOCR
   backendUrl: "http://localhost:8000",
-
-  // API keys for various services (empty by default — user must provide)
   googleCloudApiKey: "",
   openaiApiKey: "",
   claudeApiKey: "",
   geminiApiKey: "",
-
-  // LLM model to use when translating with OpenAI, Claude, or Gemini
   llmModel: "gemini-2.0-flash",
-
-  // UI preference: light or dark theme
   darkMode: false,
 };
 
@@ -94,8 +81,9 @@ export default function App() {
      * defaults so the UI is still usable for development.
      */
     if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.local.get(DEFAULT_SETTINGS, (result) => {
-        setSettings(result);
+      chrome.storage.local.get(SETTINGS_KEY, (result) => {
+        const stored = result[SETTINGS_KEY] || {};
+        setSettings({ ...DEFAULT_SETTINGS, ...stored });
         setLoaded(true);
       });
     } else {
@@ -114,7 +102,7 @@ export default function App() {
     if (!loaded) return;
 
     if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.local.set(settings);
+      chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     }
   }, [settings, loaded]);
 
