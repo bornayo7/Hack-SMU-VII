@@ -10,6 +10,7 @@ venv/
 
 # Build output (rebuilt with npm run build)
 lensmu/extension/dist/
+lensmu/website/.next/
 
 # IDE
 .vscode/
