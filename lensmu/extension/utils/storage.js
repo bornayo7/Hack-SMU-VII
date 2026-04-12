@@ -217,32 +217,14 @@ const DEFAULT_SETTINGS = {
 export async function getSettings() {
   try {
     /*
-     * chrome.storage.local.get([key]) returns an object. If the key
-     * doesn't exist, it's simply not in the result (no error thrown).
-     *
-     * Example result: { vt_settings: { targetLanguage: 'es', ... } }
-     * If nothing stored: {}
+     * The popup saves settings as top-level keys in chrome.storage.local
+     * (e.g., { translationProvider: "gemini", targetLanguage: "en", ... }).
+     * We pass DEFAULT_SETTINGS as the defaults — chrome.storage.local.get()
+     * returns the stored value for each key, or the default if not stored.
      */
-    const result = await chrome.storage.local.get(SETTINGS_KEY);
-    const storedSettings = result[SETTINGS_KEY] || {};
-
-    /*
-     * Merge: spread defaults first, then stored settings on top.
-     * This means:
-     *   - All default keys are present (even if not in stored settings).
-     *   - Stored values override defaults.
-     *   - New default keys added in updates are automatically included.
-     *
-     * Object spread syntax:
-     *   { ...a, ...b } creates a new object with all properties from a,
-     *   then all properties from b. Properties in b overwrite those in a.
-     */
-    return { ...DEFAULT_SETTINGS, ...storedSettings };
+    const result = await chrome.storage.local.get(DEFAULT_SETTINGS);
+    return { ...DEFAULT_SETTINGS, ...result };
   } catch (error) {
-    /*
-     * If chrome.storage is unavailable (very rare — would mean the
-     * extension context is corrupted), fall back to defaults.
-     */
     console.error('[VisionTranslate] Error reading settings:', error);
     return { ...DEFAULT_SETTINGS };
   }
@@ -281,7 +263,7 @@ export async function saveSettings(settings) {
      * TOP level (our SETTINGS_KEY), but we're replacing the entire
      * settings object anyway, so that's fine.
      */
-    await chrome.storage.local.set({ [SETTINGS_KEY]: merged });
+    await chrome.storage.local.set(merged);
 
     console.log('[VisionTranslate] Settings saved:', merged);
   } catch (error) {
