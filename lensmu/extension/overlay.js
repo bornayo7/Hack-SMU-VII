@@ -604,6 +604,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    * canvas.style.width gives us the CSS display width (e.g., "500px").
    * We parse it to get the number.
    */
+  const rect = canvas.getBoundingClientRect();
   const displayWidth = parseFloat(canvas.style.width);
   const displayHeight = parseFloat(canvas.style.height);
 
