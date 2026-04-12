@@ -1135,6 +1135,35 @@ function normalizeTranslationText(text) {
     .trim();
 }
 
+function endsWithSpeechPause(text) {
+  return /[.!?;:…。！？]$/.test(String(text || '').trim());
+}
+
+export function buildSpeechText(ocrResults = [], translations = []) {
+  const segments = ocrResults
+    .map((block, index) => ({
+      ...(block || {}),
+      translatedText: normalizeTranslationText(translations[index])
+    }))
+    .filter((block) => block.translatedText.length > 0)
+    .sort(getReadingOrderComparator('horizontal'));
+
+  let speechText = '';
+
+  for (const segment of segments) {
+    if (!speechText) {
+      speechText = segment.translatedText;
+      continue;
+    }
+
+    speechText += endsWithSpeechPause(speechText)
+      ? ` ${segment.translatedText}`
+      : `. ${segment.translatedText}`;
+  }
+
+  return speechText.trim();
+}
+
 function splitOversizedToken(ctx, token, maxWidth) {
   const pieces = [];
   let current = '';

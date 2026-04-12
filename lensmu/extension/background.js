@@ -63,6 +63,7 @@
 import { getSettings, saveSettings, getDisabledDomains, addDisabledDomain, removeDisabledDomain } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
 import { login as auth0Login, logout as auth0Logout, getAuthState } from './auth/auth0.js';
+import { generateReadAloudAudio, loadElevenLabsVoices, syncReadAloudTranslation } from './tts/elevenlabs.js';
 
 /*
  * --------------------------------------------------------------------------
@@ -101,6 +102,37 @@ function getTabState(tabId) {
     });
   }
   return tabStates.get(tabId);
+}
+
+function sanitizeForLog(value, key = '') {
+  if (/api.?key|token|secret/i.test(key)) {
+    return value ? '[redacted]' : '';
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLog(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([entryKey, entryValue]) => [
+        entryKey,
+        sanitizeForLog(entryValue, entryKey)
+      ])
+    );
+  }
+
+  return value;
+}
+
+async function getMessageSettings(payload = {}) {
+  const storedSettings = await getSettings();
+  return {
+    ...storedSettings,
+    ...(payload?.settings && typeof payload.settings === 'object'
+      ? payload.settings
+      : {})
+  };
 }
 
 /*
@@ -555,7 +587,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const payload = message?.payload ?? {};
     const tabId = sender.tab?.id;
 
-    console.log(`[VisionTranslate] Message received:`, { action, tabId, payload });
+    console.log(`[VisionTranslate] Message received:`, {
+      action,
+      tabId,
+      payload: sanitizeForLog(payload)
+    });
 
     switch (action) {
       /*
@@ -615,13 +651,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
        * We route it to the configured OCR engine.
        */
       case 'OCR_REQUEST': {
-        const storedSettings = await getSettings();
-        const settings = {
-          ...storedSettings,
-          ...(payload?.settings && typeof payload.settings === 'object'
-            ? payload.settings
-            : {})
-        };
+        const settings = await getMessageSettings(payload);
         const engine = normalizeOcrEngine(settings.ocrEngine);
         const backendUrl = settings.backendUrl || 'http://localhost:8000';
         const rawImage = stripDataUrlPrefix(payload.imageBase64);
@@ -858,13 +888,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
          * does NOT go through the Python backend — the APIs are called
          * directly from the extension's service worker context.
          */
-        const storedSettings = await getSettings();
-        const settings = {
-          ...storedSettings,
-          ...(payload?.settings && typeof payload.settings === 'object'
-            ? payload.settings
-            : {})
-        };
+        const settings = await getMessageSettings(payload);
         const sourceLang = payload.sourceLang || 'auto';
         const targetLang = payload.targetLang || settings.targetLanguage || 'en';
 
@@ -889,6 +913,118 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({
             ok: false,
             body: { error: translateError.message }
+          });
+        }
+        break;
+      }
+
+      /*
+       * ---- LOAD_ELEVENLABS_VOICES ----
+       * Sent by the popup to fetch the account's available ElevenLabs voices.
+       * This stays separate from OCR and translation and uses the stored API key.
+       */
+      case 'LOAD_ELEVENLABS_VOICES': {
+        const settings = await getMessageSettings(payload);
+
+        try {
+          const voices = await loadElevenLabsVoices(settings);
+          sendResponse({
+            ok: true,
+            body: { voices }
+          });
+        } catch (error) {
+          console.error('[VisionTranslate] ElevenLabs voice load error:', error);
+          sendResponse({
+            ok: false,
+            body: { error: error.message }
+          });
+        }
+        break;
+      }
+
+      /*
+       * ---- TEST_ELEVENLABS_VOICE ----
+       * Sent by the popup to synthesize a short preview clip with the current
+       * ElevenLabs settings. Playback happens in the popup after the audio is
+       * returned, but the network request stays in the background worker.
+       */
+      case 'TEST_ELEVENLABS_VOICE': {
+        const settings = await getMessageSettings(payload);
+
+        try {
+          const audioResult = await generateReadAloudAudio({
+            text: payload.text || 'This is a VisionTranslate read aloud test.',
+            language: payload.language || settings.targetLanguage || 'en',
+            settings,
+            cacheAudio: false
+          });
+          sendResponse({
+            ok: true,
+            body: audioResult
+          });
+        } catch (error) {
+          console.error('[VisionTranslate] ElevenLabs voice test error:', error);
+          sendResponse({
+            ok: false,
+            body: { error: error.message }
+          });
+        }
+        break;
+      }
+
+      /*
+       * ---- SYNC_READ_ALOUD_TRANSLATION ----
+       * Sent by the content script after translation completes for an image.
+       * If the translated text changed, we invalidate any older cached audio
+       * tied to that image fingerprint before the user presses Read Aloud.
+       */
+      case 'SYNC_READ_ALOUD_TRANSLATION': {
+        try {
+          const result = await syncReadAloudTranslation({
+            imageFingerprint: payload.imageFingerprint,
+            translationHash: payload.translationHash
+          });
+          sendResponse({
+            ok: true,
+            body: result
+          });
+        } catch (error) {
+          console.error('[VisionTranslate] Read aloud cache sync error:', error);
+          sendResponse({
+            ok: false,
+            body: { error: error.message }
+          });
+        }
+        break;
+      }
+
+      /*
+       * ---- GENERATE_READ_ALOUD_AUDIO ----
+       * Sent by the content script when the user clicks the per-image Read
+       * button. We synthesize speech from the translated text only and cache
+       * the audio by text, image fingerprint, language, and voice settings.
+       */
+      case 'GENERATE_READ_ALOUD_AUDIO': {
+        const settings = await getMessageSettings(payload);
+
+        try {
+          const audioResult = await generateReadAloudAudio({
+            text: payload.text,
+            language: payload.language || settings.targetLanguage || 'en',
+            imageFingerprint: payload.imageFingerprint,
+            translationHash: payload.translationHash,
+            settings,
+            cacheAudio: true
+          });
+          sendResponse({
+            ok: true,
+            body: audioResult
+          });
+        } catch (error) {
+          console.error('[VisionTranslate] Read aloud generation error:', error);
+          sendResponse({
+            ok: false,
+            body: { error: error.message }
           });
         }
         break;

@@ -137,6 +137,15 @@ const DEFAULT_SETTINGS = {
   customBaseUrl: '',
   customModelName: '',
   llmModel: 'gemini-2.0-flash',
+  enableReadAloud: false,
+  elevenLabsApiKey: '',
+  elevenLabsVoiceId: '',
+  elevenLabsModelId: 'eleven_flash_v2_5',
+  elevenLabsOutputFormat: 'mp3_44100_128',
+  elevenLabsStability: 0.5,
+  elevenLabsSimilarityBoost: 0.75,
+  elevenLabsStyle: 0,
+  elevenLabsSpeed: 1,
 
   /*
    * minImageWidth / minImageHeight: Minimum dimensions (in pixels) for
@@ -211,6 +220,18 @@ const DEFAULT_SETTINGS = {
   overlayOpacity: 1.0
 };
 
+function redactSecretsForLog(settings = {}) {
+  return Object.fromEntries(
+    Object.entries(settings).map(([key, value]) => {
+      if (/api.?key|token|secret/i.test(key)) {
+        return [key, value ? '[redacted]' : ''];
+      }
+
+      return [key, value];
+    })
+  );
+}
+
 /*
  * --------------------------------------------------------------------------
  * getSettings()
@@ -279,7 +300,7 @@ export async function saveSettings(settings) {
      */
     await chrome.storage.local.set(merged);
 
-    console.log('[VisionTranslate] Settings saved:', merged);
+    console.log('[VisionTranslate] Settings saved:', redactSecretsForLog(merged));
   } catch (error) {
     console.error('[VisionTranslate] Error saving settings:', error);
     throw error; /* Re-throw so the caller knows it failed */

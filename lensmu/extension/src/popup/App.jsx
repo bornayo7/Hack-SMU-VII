@@ -4,6 +4,7 @@ import TranslateSettings, {
   PROVIDER_OPTIONS,
 } from "./components/TranslateSettings.jsx";
 import LanguageSelector from "./components/LanguageSelector.jsx";
+import ReadAloudSettings from "./components/ReadAloudSettings.jsx";
 
 const DEFAULT_SETTINGS = {
   ocrEngine: "tesseract",
@@ -21,6 +22,15 @@ const DEFAULT_SETTINGS = {
   customBaseUrl: "",
   customModelName: "",
   llmModel: "gemini-2.0-flash",
+  enableReadAloud: false,
+  elevenLabsApiKey: "",
+  elevenLabsVoiceId: "",
+  elevenLabsModelId: "eleven_flash_v2_5",
+  elevenLabsOutputFormat: "mp3_44100_128",
+  elevenLabsStability: 0.5,
+  elevenLabsSimilarityBoost: 0.75,
+  elevenLabsStyle: 0,
+  elevenLabsSpeed: 1,
   darkMode: false,
   showConfidenceBorders: true,
   overlayFontFamily: "sans",
@@ -51,6 +61,7 @@ const OVERLAY_ALIGNMENT_OPTIONS = [
 ];
 
 const MIN_FONT_SIZE_OPTIONS = [8, 10, 12, 14, 16];
+const READ_ALOUD_TEST_TEXT = "This is a VisionTranslate read aloud test.";
 
 function normalizeLoadedSettings(rawSettings = {}) {
   const nextSettings = { ...rawSettings };
@@ -111,6 +122,22 @@ function sendTabMessage(tabId, message) {
   });
 }
 
+async function persistSettingsSnapshot(settings) {
+  try {
+    await sendRuntimeMessage({
+      action: "SAVE_SETTINGS",
+      payload: { settings },
+    });
+  } catch (error) {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.set(settings);
+      return;
+    }
+
+    throw error;
+  }
+}
+
 function ToggleRow({
   label,
   description,
@@ -156,7 +183,12 @@ export default function App() {
   const [tabUnavailable, setTabUnavailable] = useState(false);
   const [authUser, setAuthUser] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [elevenLabsVoices, setElevenLabsVoices] = useState([]);
+  const [readAloudStatus, setReadAloudStatus] = useState("");
+  const [isLoadingVoices, setIsLoadingVoices] = useState(false);
+  const [isTestingVoice, setIsTestingVoice] = useState(false);
   const hasHydrated = useRef(false);
+  const testAudioRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +245,15 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.darkMode);
   }, [settings.darkMode]);
+
+  useEffect(() => {
+    return () => {
+      if (testAudioRef.current) {
+        testAudioRef.current.pause();
+        testAudioRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!loaded) {
@@ -415,6 +456,85 @@ export default function App() {
       console.error("[VisionTranslate] Could not translate page:", error);
     } finally {
       setIsTranslating(false);
+    }
+  }
+
+  async function handleLoadVoices() {
+    setIsLoadingVoices(true);
+    setReadAloudStatus("");
+
+    try {
+      await persistSettingsSnapshot(settings);
+
+      const response = await sendRuntimeMessage({
+        action: "LOAD_ELEVENLABS_VOICES",
+      });
+
+      if (!response?.ok) {
+        throw new Error(response?.body?.error || "Could not load ElevenLabs voices.");
+      }
+
+      const voices = response.body?.voices || [];
+      setElevenLabsVoices(voices);
+
+      if (!settings.elevenLabsVoiceId && voices[0]?.voiceId) {
+        updateSetting("elevenLabsVoiceId", voices[0].voiceId);
+      }
+
+      setReadAloudStatus(
+        voices.length
+          ? `Loaded ${voices.length} voice${voices.length === 1 ? "" : "s"}.`
+          : "No voices returned for this account."
+      );
+    } catch (error) {
+      console.error("[VisionTranslate] Could not load ElevenLabs voices:", error);
+      setReadAloudStatus(error.message);
+    } finally {
+      setIsLoadingVoices(false);
+    }
+  }
+
+  async function handleTestVoice() {
+    setIsTestingVoice(true);
+    setReadAloudStatus("");
+
+    try {
+      await persistSettingsSnapshot(settings);
+
+      const response = await sendRuntimeMessage({
+        action: "TEST_ELEVENLABS_VOICE",
+        payload: {
+          text: READ_ALOUD_TEST_TEXT,
+          language: settings.targetLanguage,
+        },
+      });
+
+      if (!response?.ok) {
+        throw new Error(response?.body?.error || "Could not generate test audio.");
+      }
+
+      if (testAudioRef.current) {
+        testAudioRef.current.pause();
+        testAudioRef.current = null;
+      }
+
+      const audio = new Audio(response.body?.audioDataUrl || "");
+      audio.onended = () => {
+        setReadAloudStatus("Preview finished.");
+      };
+      audio.onerror = () => {
+        setReadAloudStatus("Preview playback failed.");
+      };
+
+      testAudioRef.current = audio;
+      await audio.play();
+
+      setReadAloudStatus("Playing preview...");
+    } catch (error) {
+      console.error("[VisionTranslate] Could not test ElevenLabs voice:", error);
+      setReadAloudStatus(error.message);
+    } finally {
+      setIsTestingVoice(false);
     }
   }
 
@@ -783,6 +903,29 @@ export default function App() {
                   </button>
                 </>
               )}
+            </section>
+
+            <section className="panel-card">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Read Aloud</p>
+                  <h2 className="section-title">ElevenLabs voice settings</h2>
+                  <p className="section-description">
+                    Keep speech generation separate from OCR and translation.
+                  </p>
+                </div>
+              </div>
+
+              <ReadAloudSettings
+                settings={settings}
+                onSettingChange={updateSetting}
+                voices={elevenLabsVoices}
+                voicesStatus={readAloudStatus}
+                isLoadingVoices={isLoadingVoices}
+                isTestingVoice={isTestingVoice}
+                onLoadVoices={handleLoadVoices}
+                onTestVoice={handleTestVoice}
+              />
             </section>
 
             <section className="panel-card">

@@ -122,6 +122,30 @@ let toolbarContainer = null;
  * remove them on deactivate.
  */
 const translateIcons = new Set();
+let activeReadAloudSession = null;
+
+const READ_ALOUD_BUTTON_STATES = {
+  stopped: {
+    label: 'Read',
+    background: 'rgba(15, 118, 110, 0.92)',
+    title: 'Read translated text aloud'
+  },
+  generating: {
+    label: 'Gen...',
+    background: 'rgba(37, 99, 235, 0.92)',
+    title: 'Generating translated speech'
+  },
+  playing: {
+    label: 'Stop',
+    background: 'rgba(217, 119, 6, 0.92)',
+    title: 'Stop translated speech'
+  },
+  error: {
+    label: 'Retry',
+    background: 'rgba(220, 38, 38, 0.92)',
+    title: 'Read aloud failed. Click to retry.'
+  }
+};
 
 /*
  * --------------------------------------------------------------------------
@@ -160,6 +184,281 @@ function stripDataUrlPrefix(imageBase64) {
 
   const commaIndex = imageBase64.indexOf(',');
   return commaIndex === -1 ? imageBase64 : imageBase64.slice(commaIndex + 1);
+}
+
+async function sha256Hex(value) {
+  const encoded = new TextEncoder().encode(String(value || ''));
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function getReadAloudSettingsSignature(settings = currentSettings) {
+  return JSON.stringify({
+    voiceId: String(settings?.elevenLabsVoiceId || '').trim(),
+    modelId: String(settings?.elevenLabsModelId || '').trim(),
+    outputFormat: String(settings?.elevenLabsOutputFormat || '').trim(),
+    stability: Number(settings?.elevenLabsStability),
+    similarityBoost: Number(settings?.elevenLabsSimilarityBoost),
+    style: Number(settings?.elevenLabsStyle),
+    speed: Number(settings?.elevenLabsSpeed)
+  });
+}
+
+function getTranslateControl(imageElement) {
+  for (const control of translateIcons) {
+    if (control.element === imageElement) {
+      return control;
+    }
+  }
+
+  return null;
+}
+
+function setReadAloudButtonState(control, state, errorMessage = '') {
+  const button = control?.readAloudButton;
+  if (!button) return;
+
+  const nextState = READ_ALOUD_BUTTON_STATES[state] || READ_ALOUD_BUTTON_STATES.stopped;
+  button.textContent = nextState.label;
+  button.title = errorMessage ? `${nextState.title}: ${errorMessage}` : nextState.title;
+  button.style.background = nextState.background;
+  button.disabled = state === 'generating';
+  button.dataset.state = state;
+}
+
+function updateOverlayReadAloudState(imageElement, state, errorMessage = '') {
+  const overlay = imageOverlays.get(imageElement);
+  const control = getTranslateControl(imageElement);
+
+  if (overlay) {
+    overlay.readAloud = {
+      ...(overlay.readAloud || {}),
+      state,
+      errorMessage
+    };
+  }
+
+  setReadAloudButtonState(control, state, errorMessage);
+}
+
+function stopActiveReadAloudPlayback() {
+  if (!activeReadAloudSession) {
+    return;
+  }
+
+  const { audio, imageElement } = activeReadAloudSession;
+
+  audio.pause();
+  audio.currentTime = 0;
+  activeReadAloudSession = null;
+  updateOverlayReadAloudState(imageElement, 'stopped');
+}
+
+async function syncReadAloudTranslationCache(imageFingerprint, translationHash) {
+  if (!imageFingerprint || !translationHash) {
+    return;
+  }
+
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'SYNC_READ_ALOUD_TRANSLATION',
+      payload: {
+        imageFingerprint,
+        translationHash
+      }
+    });
+  } catch (error) {
+    console.warn('[VisionTranslate] Read aloud cache sync failed:', error.message);
+  }
+}
+
+async function handleReadAloudClick(imageElement) {
+  const control = getTranslateControl(imageElement);
+  const overlay = imageOverlays.get(imageElement);
+
+  if (!currentSettings.enableReadAloud || !control || !overlay?.speechText) {
+    return;
+  }
+
+  if (overlay.readAloud?.state === 'playing') {
+    stopActiveReadAloudPlayback();
+    return;
+  }
+
+  if (overlay.readAloud?.state === 'generating') {
+    return;
+  }
+
+  stopActiveReadAloudPlayback();
+  updateOverlayReadAloudState(imageElement, 'generating');
+
+  try {
+    const currentSignature = getReadAloudSettingsSignature();
+    let audioDataUrl = overlay.readAloud?.audioDataUrl || '';
+
+    if (!audioDataUrl || overlay.readAloud?.settingsSignature !== currentSignature) {
+      const response = await chrome.runtime.sendMessage({
+        action: 'GENERATE_READ_ALOUD_AUDIO',
+        payload: {
+          text: overlay.speechText,
+          language: overlay.targetLanguage,
+          imageFingerprint: overlay.imageFingerprint,
+          translationHash: overlay.translationHash
+        }
+      });
+
+      if (!response?.ok) {
+        throw new Error(response?.body?.error || 'Could not generate read aloud audio.');
+      }
+
+      audioDataUrl = response.body?.audioDataUrl || '';
+
+      overlay.readAloud = {
+        ...(overlay.readAloud || {}),
+        audioDataUrl,
+        cacheKey: response.body?.cacheKey || '',
+        settingsSignature: currentSignature
+      };
+    }
+
+    if (!currentSettings.enableReadAloud || imageOverlays.get(imageElement) !== overlay) {
+      updateOverlayReadAloudState(imageElement, 'stopped');
+      return;
+    }
+
+    if (!audioDataUrl) {
+      throw new Error('No audio was returned for this translation.');
+    }
+
+    const audio = overlay.readAloud?.audio || new Audio();
+    audio.pause();
+    audio.currentTime = 0;
+    audio.src = audioDataUrl;
+
+    audio.onended = () => {
+      if (activeReadAloudSession?.imageElement === imageElement) {
+        activeReadAloudSession = null;
+      }
+      updateOverlayReadAloudState(imageElement, 'stopped');
+    };
+
+    audio.onerror = () => {
+      if (activeReadAloudSession?.imageElement === imageElement) {
+        activeReadAloudSession = null;
+      }
+      updateOverlayReadAloudState(imageElement, 'error', 'Playback failed.');
+    };
+
+    overlay.readAloud = {
+      ...(overlay.readAloud || {}),
+      audio
+    };
+
+    activeReadAloudSession = { imageElement, audio };
+    updateOverlayReadAloudState(imageElement, 'playing');
+    await audio.play();
+  } catch (error) {
+    console.error('[VisionTranslate] Read aloud playback failed:', error);
+    if (activeReadAloudSession?.imageElement === imageElement) {
+      activeReadAloudSession = null;
+    }
+    updateOverlayReadAloudState(imageElement, 'error', error.message);
+  }
+}
+
+function removeReadAloudButton(control) {
+  if (!control?.readAloudButton) {
+    return;
+  }
+
+  if (activeReadAloudSession?.imageElement === control.element) {
+    stopActiveReadAloudPlayback();
+  }
+
+  control.readAloudButton.remove();
+  control.readAloudButton = null;
+}
+
+function ensureReadAloudButton(imageElement) {
+  const control = getTranslateControl(imageElement);
+  const overlay = imageOverlays.get(imageElement);
+
+  if (!control) {
+    return;
+  }
+
+  if (!currentSettings.enableReadAloud || !overlay?.speechText) {
+    removeReadAloudButton(control);
+    return;
+  }
+
+  if (!control.readAloudButton) {
+    const button = document.createElement('button');
+    button.className = `${CLASS_PREFIX}-read-aloud-btn`;
+    button.style.cssText = `
+      height: 32px;
+      border-radius: 16px;
+      border: 2px solid rgba(255,255,255,0.8);
+      background: ${READ_ALOUD_BUTTON_STATES.stopped.background};
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      padding: 0 12px;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      white-space: nowrap;
+    `;
+    button.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleReadAloudClick(imageElement);
+    });
+
+    control.iconContainer.insertBefore(button, control.translateAllBtn);
+    control.readAloudButton = button;
+  }
+
+  const shouldResetAudio =
+    overlay.readAloud?.settingsSignature &&
+    overlay.readAloud.settingsSignature !== getReadAloudSettingsSignature();
+
+  if (shouldResetAudio) {
+    if (activeReadAloudSession?.imageElement === imageElement) {
+      stopActiveReadAloudPlayback();
+    }
+
+    overlay.readAloud = {
+      ...(overlay.readAloud || {}),
+      state: 'stopped',
+      errorMessage: '',
+      audioDataUrl: '',
+      settingsSignature: ''
+    };
+  }
+
+  setReadAloudButtonState(
+    control,
+    overlay.readAloud?.state || 'stopped',
+    overlay.readAloud?.errorMessage || ''
+  );
+}
+
+function refreshReadAloudButtons() {
+  if (!currentSettings.enableReadAloud && activeReadAloudSession) {
+    stopActiveReadAloudPlayback();
+  }
+
+  for (const control of translateIcons) {
+    ensureReadAloudButton(control.element);
+  }
 }
 
 async function runBundledTesseractOCR(
@@ -647,23 +946,21 @@ function createOverlay(imageElement) {
     canvas.style.pointerEvents = overlay.showingTranslation ? "auto" : "none";
 
     /* Update icon if present */
-    for (const { icon, iconContainer, anchor } of translateIcons) {
-      if (anchor.contains(imageElement) || anchor === imageElement) {
-        if (overlay.showingTranslation) {
-          icon.innerHTML = "✓";
-          icon.style.background = "rgba(34, 197, 94, 0.9)";
-        } else {
-          icon.innerHTML = "文A";
-          icon.style.background = "rgba(59, 130, 246, 0.9)";
-        }
-        break;
+    const control = getTranslateControl(imageElement);
+    if (control?.icon) {
+      if (overlay.showingTranslation) {
+        control.icon.innerHTML = "✓";
+        control.icon.style.background = "rgba(34, 197, 94, 0.9)";
+      } else {
+        control.icon.innerHTML = "文A";
+        control.icon.style.background = "rgba(59, 130, 246, 0.9)";
       }
     }
   }
 
   canvas.addEventListener("click", toggleTranslationOverlay);
   wrapper.addEventListener("click", (e) => {
-    if (e.target.closest(`.${CLASS_PREFIX}-translate-icon`)) return;
+    if (e.target.closest(`.${CLASS_PREFIX}-translate-icon-container`)) return;
     const overlay = imageOverlays.get(imageElement);
     if (overlay && !overlay.showingTranslation && overlay.translations?.length > 0) {
       toggleTranslationOverlay(e);
@@ -923,6 +1220,12 @@ async function processImage(imageInfo, options = { prefetch: false }) {
     }
 
     const translations = translateResponse.body?.translations || [];
+    const targetLanguage = translateResponse.body?.target_lang || currentSettings.targetLanguage || 'en';
+    const speechText = overlayModule.buildSpeechText(mergedOcrResults, translations);
+    const imageFingerprint = await sha256Hex(stripDataUrlPrefix(imageBase64));
+    const translationHash = await sha256Hex(`${targetLanguage}::${speechText}`);
+
+    await syncReadAloudTranslationCache(imageFingerprint, translationHash);
 
     /*
      * STEP 4: Create overlay and render
@@ -948,7 +1251,18 @@ async function processImage(imageInfo, options = { prefetch: false }) {
       ocrResults: mergedOcrResults,
       rawOcrResults,
       translations,
-      showingTranslation: initialVisibility
+      showingTranslation: initialVisibility,
+      speechText,
+      imageFingerprint,
+      translationHash,
+      targetLanguage,
+      readAloud: {
+        state: 'stopped',
+        errorMessage: '',
+        audioDataUrl: '',
+        settingsSignature: '',
+        audio: null
+      }
     });
 
     /*
@@ -979,6 +1293,7 @@ async function processImage(imageInfo, options = { prefetch: false }) {
      * The overlay module returns this as a setup function.
      */
     overlayModule.setupHoverDetection(canvas, mergedOcrResults, translations);
+    ensureReadAloudButton(element);
 
     console.log(
       `[VisionTranslate] Successfully translated image with ${mergedOcrResults.length} merged text blocks`
@@ -1164,6 +1479,7 @@ function addTranslateIcons() {
         overlay.showingTranslation = true;
         overlay.canvas.style.opacity = "1";
         overlay.canvas.style.pointerEvents = "auto";
+        ensureReadAloudButton(imageInfo.element);
 
         icon.innerHTML = "✓";
         icon.style.background = "rgba(34, 197, 94, 0.9)";
@@ -1202,7 +1518,18 @@ function addTranslateIcons() {
     });
 
     iconAnchor.appendChild(iconContainer);
-    translateIcons.add({ icon, iconContainer, anchor: iconAnchor, showIcon, hideIcon });
+    translateIcons.add({
+      element,
+      icon,
+      iconContainer,
+      anchor: iconAnchor,
+      showIcon,
+      hideIcon,
+      translateAllBtn,
+      readAloudButton: null
+    });
+
+    ensureReadAloudButton(element);
   }
 }
 
@@ -1454,6 +1781,8 @@ function toggleAllOverlays() {
  * restores the original page layout.
  */
 function cleanupAll() {
+  stopActiveReadAloudPlayback();
+
   /*
    * Remove all wrapper divs and restore images to their original
    * position in the DOM.
@@ -1682,6 +2011,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         previousSettings.overlayMinFontSize !== currentSettings.overlayMinFontSize ||
         previousSettings.overlayTextAlign !== currentSettings.overlayTextAlign ||
         previousSettings.showConfidenceBorders !== currentSettings.showConfidenceBorders;
+      const readAloudSettingsChanged =
+        previousSettings.enableReadAloud !== currentSettings.enableReadAloud ||
+        previousSettings.elevenLabsVoiceId !== currentSettings.elevenLabsVoiceId ||
+        previousSettings.elevenLabsModelId !== currentSettings.elevenLabsModelId ||
+        previousSettings.elevenLabsOutputFormat !== currentSettings.elevenLabsOutputFormat ||
+        previousSettings.elevenLabsStability !== currentSettings.elevenLabsStability ||
+        previousSettings.elevenLabsSimilarityBoost !== currentSettings.elevenLabsSimilarityBoost ||
+        previousSettings.elevenLabsStyle !== currentSettings.elevenLabsStyle ||
+        previousSettings.elevenLabsSpeed !== currentSettings.elevenLabsSpeed;
 
       /*
        * If the target language changed, re-process all images with
@@ -1709,6 +2047,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: false, error: error.message });
           });
         return true;
+      }
+
+      if (readAloudSettingsChanged) {
+        stopActiveReadAloudPlayback();
+        refreshReadAloudButtons();
       }
 
       sendResponse({ success: true });
