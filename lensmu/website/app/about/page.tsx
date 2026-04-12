@@ -5,12 +5,12 @@ import { Navbar } from "@/components/layout/Navbar";
 import { TeamSection } from "@/components/sections/TeamSection";
 
 export const metadata: Metadata = {
-  title: "Team | VisionTranslate",
+  title: "About Us | VisionTranslate",
   description:
     "Meet the team behind VisionTranslate, the browser extension for translating text inside webpage images."
 };
 
-export default function TeamPage() {
+export default function AboutPage() {
   return (
     <>
       <Navbar />

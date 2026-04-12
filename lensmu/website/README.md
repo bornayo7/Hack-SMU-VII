@@ -1,9 +1,9 @@
 # VisionTranslate Website
 
-Marketing website for VisionTranslate, also called LensMU. The site presents the
-browser extension, explains the OCR and translation workflow, includes a demo
-video placeholder, introduces sample team members, and provides a validated
-contact form. It also includes a persistent light/dark theme toggle and footer
+Marketing website for VisionTranslate. The site presents the browser extension,
+explains the OCR and translation workflow, includes a product showcase video,
+introduces the engineering team, and provides a contact form for business
+inquiries. It also includes a persistent light/dark theme toggle and footer
 links for team GitHub and LinkedIn profiles.
 
 ## Tech Stack
@@ -73,6 +73,6 @@ npm run start
 ## Customization
 
 - Update team members, use cases, features, and links in `data/site.ts`.
-- Replace the demo placeholder in `components/sections/DemoSection.tsx` with a
-  YouTube, Vimeo, or local video embed when the final demo is ready.
+- Replace the showcase placeholder in `components/sections/DemoSection.tsx` with
+  a YouTube, Vimeo, or local video embed for the product tour.
 - Update the contact links in `data/site.ts`.

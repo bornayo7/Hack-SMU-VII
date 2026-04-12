@@ -16,9 +16,9 @@ export function TeamSection() {
     <section id="team" className="bg-background section-padding">
       <div className="section-shell">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="eyebrow">Team</p>
+          <p className="eyebrow">About Us</p>
           <h2 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">
-            Built by a product-minded hackathon team.
+            Built by a product-minded engineering team.
           </h2>
           <p className="mt-5 text-base leading-8 text-muted-foreground">
             A cross-functional group bringing together extension engineering,
@@ -28,7 +28,7 @@ export function TeamSection() {
 
         <div className="mx-auto mt-12 grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {teamMembers.map((member) => (
-            <Card key={member.name} className="animate-fade-up shadow-soft">
+            <Card key={member.name} className="animate-fade-up flex h-full flex-col shadow-soft">
               <CardHeader>
                 <div className="relative mb-5 h-20 w-20">
                   {member.avatarUrl ? (
@@ -74,11 +74,11 @@ export function TeamSection() {
                   {member.role}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-1 flex-col">
                 <p className="text-sm leading-6 text-muted-foreground">
                   {member.bio}
                 </p>
-                <div className="mt-5 flex flex-wrap gap-2">
+                <div className="mt-auto pt-5 flex flex-wrap gap-2">
                   {member.github ? (
                     <Button variant="outline" size="sm" asChild>
                       <a

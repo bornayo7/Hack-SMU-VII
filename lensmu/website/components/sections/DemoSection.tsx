@@ -16,13 +16,13 @@ export function DemoSection() {
         <RevealOnScroll className="mx-auto max-w-3xl text-center">
           <div>
             <p className="text-sm font-semibold uppercase text-accent">
-              Demo Video
+              Product Showcase
             </p>
             <h2 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">
-              Watch the extension translate visual text in real time.
+              See the extension translate visual text in real time.
             </h2>
             <p className="mt-5 text-base leading-8 text-white/70">
-              The walkthrough shows VisionTranslate scanning a webpage image,
+              This walkthrough shows VisionTranslate scanning a webpage image,
               extracting text with OCR, translating it, and placing the result
               directly over the original visual content.
             </p>
@@ -41,18 +41,18 @@ export function DemoSection() {
                 <span className="h-3 w-3 rounded-sm bg-accent" />
                 <span className="h-3 w-3 rounded-sm bg-primary" />
                 <span className="ml-2 truncate text-xs font-medium text-white/70">
-                  VisionTranslate demo playback
+                  VisionTranslate showcase playback
                 </span>
               </div>
               <span className="hidden rounded-md bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground sm:inline-flex">
-                Live demo ready
+                Production-ready tour
               </span>
             </div>
 
             <div className="relative aspect-video">
               <Image
                 src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1600&q=80"
-                alt="Large demo video placeholder for VisionTranslate"
+                alt="VisionTranslate product tour video placeholder"
                 fill
                 sizes="(min-width: 1024px) 1152px, 100vw"
                 className="object-cover opacity-75 transition duration-700 group-hover:scale-105"
@@ -62,18 +62,18 @@ export function DemoSection() {
                 <a
                   href="/contact"
                   className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-md bg-white text-neutral-950 shadow-soft transition duration-300 hover:scale-105 hover:bg-accent"
-                  aria-label="Watch full demo"
+                  aria-label="Watch product tour"
                 >
                   <Play className="h-7 w-7" />
                 </a>
                 <div className="max-w-lg rounded-md border border-white/20 bg-neutral-950/75 px-4 py-3 backdrop-blur">
                   <p className="flex items-center justify-center gap-2 text-sm font-semibold">
                     <Video className="h-4 w-4" />
-                    Full demo video placeholder
+                    Product tour video placeholder
                   </p>
                   <p className="mt-1 text-xs leading-5 text-white/70">
-                    Drop in the final YouTube, Vimeo, or local demo video when
-                    it is ready.
+                    Drop in the final YouTube, Vimeo, or local showcase video to
+                    display the full experience.
                   </p>
                 </div>
               </div>
@@ -95,7 +95,7 @@ export function DemoSection() {
               </div>
               <Button variant="inverse" size="lg" asChild>
                 <a href="/contact">
-                  Watch Full Demo
+                  See it in Action
                   <ArrowRight className="h-5 w-5" />
                 </a>
               </Button>

@@ -77,7 +77,7 @@ export function AboutSection() {
             {[
               ["Use it for", "Manga, screenshots, signs, menus, documents"],
               ["Powered by", "OCR detection, AI translation, page overlays"],
-              ["Designed for", "Fast demos, real browsing, visual content"]
+              ["Designed for", "Production use cases, real browsing, visual content"]
             ].map(([label, value]) => (
               <div key={label}>
                 <p className="text-sm font-semibold uppercase text-primary">

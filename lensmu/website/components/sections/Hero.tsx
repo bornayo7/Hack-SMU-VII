@@ -1,4 +1,4 @@
-import { CheckCircle2, Play, Users } from "lucide-react";
+import { CheckCircle2, Chrome, Play, Users } from "lucide-react";
 import Image from "next/image";
 
 import { Button } from "@/components/ui/button";
@@ -40,9 +40,9 @@ export function Hero() {
 
           <div className="animate-fade-up-delay mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Button variant="inverse" size="lg" asChild>
-              <a href="#demo">
-                <Play className="h-5 w-5" />
-                Watch Demo
+              <a href="https://chrome.google.com/webstore" target="_blank" rel="noreferrer">
+                <Chrome className="h-5 w-5" />
+                Get Extension
               </a>
             </Button>
             <Button
@@ -51,9 +51,9 @@ export function Hero() {
               className="border-white/40 bg-white/10 text-white hover:bg-white/20"
               asChild
             >
-              <a href="/team">
+              <a href="/about">
                 <Users className="h-5 w-5" />
-                Meet the Team
+                About Us
               </a>
             </Button>
           </div>
@@ -66,7 +66,7 @@ export function Hero() {
               <span className="h-3 w-3 rounded-sm bg-accent" />
               <span className="h-3 w-3 rounded-sm bg-primary" />
               <span className="ml-3 truncate rounded-md bg-white/10 px-3 py-1 text-xs text-white/75">
-                visiontranslate.demo/manga-panel
+                visiontranslate.app/manga-panel
               </span>
             </div>
 

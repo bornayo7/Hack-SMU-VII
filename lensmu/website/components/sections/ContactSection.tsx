@@ -76,11 +76,12 @@ export function ContactSection() {
           <div>
             <p className="eyebrow">Contact</p>
             <h2 className="mt-3 max-w-xl text-3xl font-bold leading-tight sm:text-4xl">
-              Ready to present VisionTranslate?
+              Get in touch with VisionTranslate
             </h2>
             <p className="mt-5 max-w-xl text-base leading-8 text-muted-foreground">
-              Send a message for demo coordination, judging materials,
-              collaboration, or product questions.
+              Send a message for business inquiries, collaboration, or product
+              questions. We&apos;re building the future of in-context visual
+              translation.
             </p>
 
             <div className="mt-8 grid gap-3">
@@ -136,7 +137,7 @@ export function ContactSection() {
                   <Textarea
                     id="message"
                     name="message"
-                    placeholder="Tell us what you want to see in the demo."
+                    placeholder="How can we help you?"
                     value={form.message}
                     onChange={(event) =>
                       updateField("message", event.target.value)
@@ -155,7 +156,7 @@ export function ContactSection() {
 
                 <p className="min-h-6 text-sm font-medium text-primary" aria-live="polite">
                   {success
-                    ? "Thanks. Your message is ready for the VisionTranslate team."
+                    ? "Thanks. Your message has been received by the VisionTranslate team."
                     : ""}
                 </p>
               </form>

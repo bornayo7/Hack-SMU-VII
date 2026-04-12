@@ -7,7 +7,7 @@ import { ContactSection } from "@/components/sections/ContactSection";
 export const metadata: Metadata = {
   title: "Contact | VisionTranslate",
   description:
-    "Contact the VisionTranslate team for demo details, collaboration, or project questions."
+    "Contact the VisionTranslate team for business inquiries, collaboration, or product questions."
 };
 
 export default function ContactPage() {

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 
+import { AppAuthProvider } from "@/components/auth/AppAuthProvider";
+import { auth0 } from "@/lib/auth0";
+import { isAuth0Enabled } from "@/lib/auth0";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,14 +26,20 @@ export const metadata: Metadata = {
   }
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = auth0 ? await auth0.getSession() : null;
+
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppAuthProvider authEnabled={isAuth0Enabled} user={session?.user}>
+          {children}
+        </AppAuthProvider>
+      </body>
     </html>
   );
 }

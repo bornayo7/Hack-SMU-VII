@@ -31,7 +31,7 @@ export function FeaturesSection() {
         <div className="mx-auto max-w-3xl text-center">
           <p className="eyebrow">Features</p>
           <h2 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">
-            Everything needed for a polished browser translation demo.
+            Everything needed for seamless, real-world browser translation.
           </h2>
           <p className="mt-5 text-base leading-8 text-muted-foreground">
             VisionTranslate combines page scanning, image OCR, translation, and

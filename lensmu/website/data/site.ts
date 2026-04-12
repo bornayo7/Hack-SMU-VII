@@ -10,7 +10,8 @@ export type TeamMember = {
 
 export const navLinks = [
   { label: "Home", href: "/" },
-  { label: "Team", href: "/team" },
+  { label: "Translate", href: "/translate" },
+  { label: "About us", href: "/about" },
   { label: "Contact", href: "/contact" }
 ];
 
@@ -22,7 +23,7 @@ export const projectGithub = {
 export const heroStats = [
   { value: "In-image", label: "translation that stays inside the original visual context" },
   { value: "OCR + LLM", label: "multi-step pipeline built for real webpage images" },
-  { value: "Hackathon-ready", label: "made for manga, screenshots, signs, menus, and more" }
+  { value: "Production-ready", label: "made for manga, screenshots, signs, menus, and more" }
 ];
 
 export const features = [
@@ -152,7 +153,7 @@ export const teamMembers: TeamMember[] = [
     role: "Backend and OCR Engineer",
     initials: "DO",
     bio:
-      "Builds the OCR and backend pipeline that powers reliable text extraction and processing across the product.",
+      "Architects the core backend infrastructure and OCR pipeline, ensuring rapid, reliable text extraction and efficient data processing across the entire product ecosystem.",
     avatarUrl: "https://github.com/Logan722.png?size=256",
     github: "https://github.com/Logan722",
     linkedin: "https://www.linkedin.com/in/daniel-oni-mscs/"
@@ -162,7 +163,7 @@ export const teamMembers: TeamMember[] = [
     role: "Product and Frontend Engineer",
     initials: "KL",
     bio:
-      "Shapes the user experience, frontend presentation, and visual polish that make the product feel intuitive and demo-ready.",
+      "Focuses on creating a seamless user experience through robust frontend architecture, ensuring the extension and website are highly responsive, intuitive, and visually polished.",
     avatarUrl: "https://github.com/KBuildingPrograms.png?size=256",
     github: "https://github.com/KBuildingPrograms",
     linkedin: "https://www.linkedin.com/in/karyn-ld/"
@@ -172,17 +173,17 @@ export const teamMembers: TeamMember[] = [
     role: "Full Stack Engineer",
     initials: "IK",
     bio:
-      "Connects the website, extension, and supporting product flows into one cohesive full-stack experience.",
+      "Bridges the gap between backend services and user interfaces, weaving the website, browser extension, and core product workflows into a single, cohesive full-stack experience.",
     avatarUrl: "https://github.com/ijazkiani10.png?size=256",
     github: "https://github.com/ijazkiani10",
     linkedin: "https://www.linkedin.com/in/ijaz-kiani/"
   },
   {
     name: "Yash Baruah",
-    role: "Product Engineer",
+    role: "Product & UI Engineer",
     initials: "YB",
     bio:
-      "Drives product direction, presentation flow, and the polished storytelling needed for a strong hackathon demo.",
+      "Designed the application's user interface and co-developed the website. Additionally, contributed to fine-tuning the OCR models and is leading the integration of Auth0 and voice assistant capabilities.",
     avatarUrl: "https://github.com/bornayo7.png?size=256",
     github: "https://github.com/bornayo7",
     linkedin: "https://www.linkedin.com/in/yashbaruah/"
