@@ -43,8 +43,24 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)"
       },
       boxShadow: {
-        soft: "0 18px 50px rgba(18, 24, 32, 0.12)",
-        lift: "0 28px 80px rgba(18, 24, 32, 0.18)"
+        soft: "0 4px 20px -2px rgba(0, 0, 0, 0.05)",
+        lift: "0 10px 40px -10px rgba(0, 0, 0, 0.12)",
+        glow: "0 0 20px rgba(124, 58, 237, 0.15)"
+      },
+      animation: {
+        "fade-in": "fade-in 0.5s ease-out",
+        "fade-up": "fade-up 0.5s ease-out",
+        "pulse-slow": "pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+      },
+      keyframes: {
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        }
       }
     }
   },

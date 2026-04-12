@@ -151,6 +151,8 @@ export default function App() {
   const [isTogglingPage, setIsTogglingPage] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [tabUnavailable, setTabUnavailable] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   const hasHydrated = useRef(false);
 
   useEffect(() => {
@@ -158,10 +160,15 @@ export default function App() {
 
     async function loadPopupState() {
       try {
-        const [settingsResponse, currentTab] = await Promise.all([
+        const [settingsResponse, currentTab, authState] = await Promise.all([
           sendRuntimeMessage({ action: "GET_SETTINGS" }).catch(() => null),
           queryActiveTab(),
+          sendRuntimeMessage({ action: "GET_AUTH_STATE" }).catch(() => null),
         ]);
+
+        if (!cancelled && authState?.isAuthenticated) {
+          setAuthUser(authState.user);
+        }
 
         if (cancelled) {
           return;
@@ -329,6 +336,34 @@ export default function App() {
       console.error("[VisionTranslate] Could not toggle page translation:", error);
     } finally {
       setIsTogglingPage(false);
+    }
+  }
+
+  async function handleAuthLogin() {
+    setIsAuthLoading(true);
+    try {
+      const response = await sendRuntimeMessage({ action: "AUTH_LOGIN" });
+      if (response?.success) {
+        setAuthUser(response.user);
+      } else {
+        console.error("[VisionTranslate] Login failed:", response?.error);
+      }
+    } catch (error) {
+      console.error("[VisionTranslate] Login error:", error);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function handleAuthLogout() {
+    setIsAuthLoading(true);
+    try {
+      await sendRuntimeMessage({ action: "AUTH_LOGOUT" });
+      setAuthUser(null);
+    } catch (error) {
+      console.error("[VisionTranslate] Logout error:", error);
+    } finally {
+      setIsAuthLoading(false);
     }
   }
 
@@ -628,6 +663,87 @@ export default function App() {
 
         {activeTab === "settings" && (
           <>
+            <section className={`panel-card auth-card ${authUser ? "auth-card--signed-in" : ""}`}>
+              {authUser ? (
+                <>
+                  <div className="auth-signed-in-header">
+                    <span className="auth-status-badge">Signed in</span>
+                  </div>
+
+                  <div className="auth-profile">
+                    {authUser.picture ? (
+                      <img
+                        className="auth-avatar"
+                        src={authUser.picture}
+                        alt=""
+                        width="44"
+                        height="44"
+                      />
+                    ) : (
+                      <div className="auth-avatar auth-avatar--placeholder">
+                        {(authUser.name || authUser.email || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="auth-profile-copy">
+                      <span className="auth-profile-name">
+                        {authUser.name || "User"}
+                      </span>
+                      {authUser.email ? (
+                        <span className="auth-profile-email">{authUser.email}</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <p className="auth-note">
+                    Your account is linked and ready to save data.
+                  </p>
+
+                  <button
+                    type="button"
+                    className="auth-button auth-button--secondary"
+                    onClick={handleAuthLogout}
+                    disabled={isAuthLoading}
+                  >
+                    {isAuthLoading ? "Signing out..." : "Sign out"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="auth-promo">
+                    <div className="auth-shield" aria-hidden="true">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                    </div>
+                    <div className="auth-promo-copy">
+                      <h2 className="auth-promo-title">
+                        Protect and save your data!
+                      </h2>
+                      <p className="auth-promo-description">
+                        Sign in to sync your settings and unlock premium features across devices.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="auth-button auth-button--primary"
+                    onClick={handleAuthLogin}
+                    disabled={isAuthLoading}
+                  >
+                    {isAuthLoading ? (
+                      <>
+                        <span className="auth-button-spinner" />
+                        Signing in...
+                      </>
+                    ) : (
+                      "Sign in"
+                    )}
+                  </button>
+                </>
+              )}
+            </section>
+
             <section className="panel-card">
               <div className="section-heading">
                 <div>

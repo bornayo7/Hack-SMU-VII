@@ -12,6 +12,8 @@
     }
   },
 
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxa6PK0gNDdfTUPIK561Lv6NAOoCIDZCYHy67NsdJ53CgX4j/3zBrHX7hYbpapd4JNoX4ZC9snkU+9UpI2rKBCpTTnzPXKPwLpPq1ohwo1/rRRqfcl/2l85aOcb7rBtprrnPYGiuhsD04IJlyC1WSmr7dDxs9tikgnSphGCbAeImramEBwWI4TMcsaQJNtgtH9jB1rSI/RZ8NtRihzG2LwioSQyvSJHaFrWdzQIuSi9sURJpRCD7YvlWaQHKwyWOKFdBUouvPPWWsfQ3aOILf2i3sGtE2psPtKeDMQ0nmV6U+5A7aWCj8YENPVyTHkt7rh0Uwzjja+pcu1suSEwBmMQIDAQAB",
+
   "icons": {
     "16": "icons/VT_KD_16.png",
     "32": "icons/VT_KD_32.png",
@@ -23,7 +25,8 @@
     "activeTab",
     "storage",
     "scripting",
-    "notifications"
+    "notifications",
+    "identity"
   ],
 
   "host_permissions": [
@@ -36,7 +39,8 @@
     "https://api.mymemory.translated.net/*",
     "https://libretranslate.com/*",
     "https://translate.terraprint.co/*",
-    "https://translate.fedilab.app/*"
+    "https://translate.fedilab.app/*",
+    "https://dev-f061rrmnizussvbh.us.auth0.com/*"
   ],
 
   "background": {

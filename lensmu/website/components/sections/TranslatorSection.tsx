@@ -17,16 +17,42 @@ import Image from "next/image";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 type ProcessState = "idle" | "uploading" | "scanning" | "translating" | "rendering" | "done" | "error";
+
+const LANGUAGES = [
+  { id: "en", name: "English" },
+  { id: "es", name: "Spanish" },
+  { id: "fr", name: "French" },
+  { id: "ja", name: "Japanese" },
+  { id: "zh", name: "Chinese" },
+  { id: "ko", name: "Korean" },
+  { id: "de", name: "German" },
+];
 
 export function TranslatorSection() {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [processState, setProcessState] = useState<ProcessState>("idle");
-  const [targetLang, setTargetLang] = useState("es"); // default Spanish
+  
+  // Settings state
+  const [sourceLang, setSourceLang] = useState("auto");
+  const [targetLang, setTargetLang] = useState("en");
+  const [ocrEngine, setOcrEngine] = useState("tesseract");
+  const [provider, setProvider] = useState("openai");
+  const [apiKeys, setApiKeys] = useState({
+    openai: "",
+    claude: "",
+    gemini: "",
+    custom: ""
+  });
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModelName, setCustomModelName] = useState("");
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -192,35 +218,138 @@ export function TranslatorSection() {
                   <Card className="flex-1 p-6 md:p-8 flex flex-col justify-center border-border shadow-sm">
                     <h3 className="text-xl font-bold mb-6">Translation Settings</h3>
                     
-                    <div className="space-y-6">
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium" htmlFor="source-lang">Source Language</Label>
+                          <select
+                            id="source-lang"
+                            value={sourceLang}
+                            onChange={(e) => setSourceLang(e.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <option value="auto">Auto-detect</option>
+                            {LANGUAGES.map((lang) => (
+                              <option key={lang.id} value={lang.id}>{lang.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium" htmlFor="target-lang">Target Language</Label>
+                          <select
+                            id="target-lang"
+                            value={targetLang}
+                            onChange={(e) => setTargetLang(e.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {LANGUAGES.map((lang) => (
+                              <option key={lang.id} value={lang.id}>{lang.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium" htmlFor="ocr-engine">OCR Engine</Label>
+                        <select
+                          id="ocr-engine"
+                          value={ocrEngine}
+                          onChange={(e) => setOcrEngine(e.target.value)}
+                          className="flex h-10 w-full rounded-md border border-input bg-card px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="tesseract">Tesseract.js (Local, No setup)</option>
+                          <option value="paddleocr">PaddleOCR (Server, Best for CJK)</option>
+                          <option value="mangaocr">MangaOCR (Server, Best for JP Manga)</option>
+                          <option value="google_vision">Google Cloud Vision (Cloud)</option>
+                        </select>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Determines how text is detected and extracted from the image.
+                        </p>
+                      </div>
+
                       <div className="space-y-3">
-                        <label className="text-sm font-medium">Target Language</label>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <Label className="text-sm font-medium">Translation Engine</Label>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                           {[
-                            { id: "es", label: "Spanish" },
-                            { id: "fr", label: "French" },
-                            { id: "ja", label: "Japanese" },
-                            { id: "zh", label: "Chinese" },
-                            { id: "de", label: "German" },
-                            { id: "en", label: "English" },
-                          ].map(lang => (
+                            { id: "openai", label: "OpenAI" },
+                            { id: "claude", label: "Claude" },
+                            { id: "gemini", label: "Gemini" },
+                            { id: "custom", label: "Custom API" },
+                            { id: "libre", label: "LibreTranslate" },
+                          ].map(p => (
                             <button
-                              key={lang.id}
-                              onClick={() => setTargetLang(lang.id)}
+                              key={p.id}
+                              onClick={() => setProvider(p.id)}
                               className={cn(
-                                "flex items-center justify-center py-2.5 rounded-lg border text-sm font-medium transition-colors",
-                                targetLang === lang.id 
+                                "flex items-center justify-center py-2 rounded-md border text-xs font-medium transition-colors",
+                                provider === p.id 
                                   ? "border-primary bg-primary/10 text-primary" 
                                   : "border-border hover:bg-muted text-muted-foreground hover:text-foreground"
                               )}
                             >
-                              {lang.label}
+                              {p.label}
                             </button>
                           ))}
                         </div>
                       </div>
 
-                      <div className="pt-4 border-t border-border/50">
+                      {provider === "custom" && (
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium" htmlFor="custom-url">API Base URL</Label>
+                            <Input
+                              id="custom-url"
+                              type="url"
+                              placeholder="http://localhost:11434/v1"
+                              value={customBaseUrl}
+                              onChange={(e) => setCustomBaseUrl(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium" htmlFor="custom-model">Model Name</Label>
+                            <Input
+                              id="custom-model"
+                              type="text"
+                              placeholder="llama3, gpt-4o..."
+                              value={customModelName}
+                              onChange={(e) => setCustomModelName(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium" htmlFor="custom-key">API Key (Optional)</Label>
+                            <Input
+                              id="custom-key"
+                              type="password"
+                              placeholder="sk-..."
+                              value={apiKeys.custom}
+                              onChange={(e) => setApiKeys(prev => ({ ...prev, custom: e.target.value }))}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Required if your custom endpoint is authenticated.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {provider !== "libre" && provider !== "custom" && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium" htmlFor="api-key">
+                            {provider === "openai" ? "OpenAI" : provider === "claude" ? "Anthropic" : "Google Gemini"} API Key
+                          </Label>
+                          <Input
+                            id="api-key"
+                            type="password"
+                            placeholder="sk-..."
+                            value={apiKeys[provider as keyof typeof apiKeys] || ""}
+                            onChange={(e) => setApiKeys(prev => ({ ...prev, [provider]: e.target.value }))}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Your API key is used locally and is never sent to our servers.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-border/50">
                         <Button size="lg" className="w-full rounded-full shadow-md h-12 text-base" onClick={startTranslation}>
                           <Wand2 className="mr-2 h-5 w-5" />
                           Translate Document

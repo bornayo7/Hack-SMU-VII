@@ -62,6 +62,7 @@
  */
 import { getSettings, saveSettings, getDisabledDomains, addDisabledDomain, removeDisabledDomain } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
+import { login as auth0Login, logout as auth0Logout, getAuthState, isAuthenticated as auth0IsAuthenticated } from './auth/auth0.js';
 
 /*
  * --------------------------------------------------------------------------
@@ -868,6 +869,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         sendResponse({ success: true });
+        break;
+      }
+
+      /*
+       * ---- AUTH_LOGIN ----
+       * Sent by the popup to initiate Auth0 login via chrome.identity.
+       */
+      case 'AUTH_LOGIN': {
+        try {
+          const authData = await auth0Login();
+          sendResponse({ success: true, user: authData.user });
+        } catch (error) {
+          console.error('[VisionTranslate] Auth0 login error:', error);
+          sendResponse({ success: false, error: error.message });
+        }
+        break;
+      }
+
+      /*
+       * ---- AUTH_LOGOUT ----
+       * Sent by the popup to clear stored auth tokens.
+       */
+      case 'AUTH_LOGOUT': {
+        try {
+          await auth0Logout();
+          sendResponse({ success: true });
+        } catch (error) {
+          console.error('[VisionTranslate] Auth0 logout error:', error);
+          sendResponse({ success: false, error: error.message });
+        }
+        break;
+      }
+
+      /*
+       * ---- GET_AUTH_STATE ----
+       * Sent by the popup to check if the user is signed in.
+       */
+      case 'GET_AUTH_STATE': {
+        try {
+          const authState = await getAuthState();
+          sendResponse(authState);
+        } catch (error) {
+          console.error('[VisionTranslate] Auth state error:', error);
+          sendResponse({ isAuthenticated: false, user: null });
+        }
         break;
       }
 
