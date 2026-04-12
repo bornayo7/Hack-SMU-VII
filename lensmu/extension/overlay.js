@@ -248,6 +248,390 @@ function sampleBackgroundColor(ctx, x, y, width, height) {
   };
 }
 
+function getImageDataRect(ctx, x, y, width, height) {
+  const maxX = ctx.canvas.width;
+  const maxY = ctx.canvas.height;
+  const clampedX = clamp(Math.floor(x), 0, maxX);
+  const clampedY = clamp(Math.floor(y), 0, maxY);
+  const clampedRight = clamp(Math.ceil(x + width), clampedX, maxX);
+  const clampedBottom = clamp(Math.ceil(y + height), clampedY, maxY);
+  const clampedWidth = clampedRight - clampedX;
+  const clampedHeight = clampedBottom - clampedY;
+
+  if (clampedWidth < 1 || clampedHeight < 1) {
+    return null;
+  }
+
+  try {
+    return {
+      x: clampedX,
+      y: clampedY,
+      width: clampedWidth,
+      height: clampedHeight,
+      imageData: ctx.getImageData(clampedX, clampedY, clampedWidth, clampedHeight)
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function colorDistance(a, b) {
+  return Math.sqrt(
+    (a.r - b.r) ** 2 +
+    (a.g - b.g) ** 2 +
+    (a.b - b.b) ** 2
+  );
+}
+
+function sampleDominantRegionColor(ctx, x, y, width, height) {
+  const inset = Math.max(2, Math.min(width, height) * 0.1);
+  const primaryRegion =
+    getImageDataRect(ctx, x + inset, y + inset, width - inset * 2, height - inset * 2) ||
+    getImageDataRect(ctx, x, y, width, height);
+
+  if (!primaryRegion) {
+    return null;
+  }
+
+  const {
+    imageData: { data, width: regionWidth, height: regionHeight }
+  } = primaryRegion;
+  const sampleStepX = Math.max(1, Math.floor(regionWidth / 24));
+  const sampleStepY = Math.max(1, Math.floor(regionHeight / 24));
+  const quantizationStep = 10;
+  const buckets = new Map();
+
+  for (let py = 0; py < regionHeight; py += sampleStepY) {
+    for (let px = 0; px < regionWidth; px += sampleStepX) {
+      const idx = (py * regionWidth + px) * 4;
+      const alpha = data[idx + 3];
+
+      if (alpha < 16) {
+        continue;
+      }
+
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const key = [
+        Math.round(r / quantizationStep) * quantizationStep,
+        Math.round(g / quantizationStep) * quantizationStep,
+        Math.round(b / quantizationStep) * quantizationStep
+      ].join(',');
+
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          count: 0,
+          totalR: 0,
+          totalG: 0,
+          totalB: 0,
+          totalA: 0
+        });
+      }
+
+      const bucket = buckets.get(key);
+      bucket.count++;
+      bucket.totalR += r;
+      bucket.totalG += g;
+      bucket.totalB += b;
+      bucket.totalA += alpha;
+    }
+  }
+
+  if (!buckets.size) {
+    return null;
+  }
+
+  let bestBucket = null;
+
+  for (const bucket of buckets.values()) {
+    if (!bestBucket || bucket.count > bestBucket.count) {
+      bestBucket = bucket;
+    }
+  }
+
+  return {
+    r: Math.round(bestBucket.totalR / bestBucket.count),
+    g: Math.round(bestBucket.totalG / bestBucket.count),
+    b: Math.round(bestBucket.totalB / bestBucket.count),
+    a: Math.round(bestBucket.totalA / bestBucket.count)
+  };
+}
+
+function measureRegionSimilarity(ctx, x, y, width, height, referenceColor) {
+  const region = getImageDataRect(ctx, x, y, width, height);
+
+  if (!region || !referenceColor) {
+    return 0;
+  }
+
+  const {
+    imageData: { data, width: regionWidth, height: regionHeight }
+  } = region;
+  const sampleStepX = Math.max(1, Math.floor(regionWidth / 12));
+  const sampleStepY = Math.max(1, Math.floor(regionHeight / 12));
+  let totalSamples = 0;
+  let similarSamples = 0;
+
+  for (let py = 0; py < regionHeight; py += sampleStepY) {
+    for (let px = 0; px < regionWidth; px += sampleStepX) {
+      const idx = (py * regionWidth + px) * 4;
+      const alpha = data[idx + 3];
+
+      if (alpha < 16) {
+        continue;
+      }
+
+      totalSamples++;
+
+      const distance = colorDistance(
+        referenceColor,
+        { r: data[idx], g: data[idx + 1], b: data[idx + 2] }
+      );
+
+      if (distance <= 44) {
+        similarSamples++;
+      }
+    }
+  }
+
+  if (!totalSamples) {
+    return 0;
+  }
+
+  return similarSamples / totalSamples;
+}
+
+function scanContainerBoundary(ctx, box, referenceColor, direction, displayWidth, displayHeight) {
+  const step = 2;
+  const isHorizontalScan = direction === 'left' || direction === 'right';
+  const axisSize = isHorizontalScan ? box.width : box.height;
+  const orthogonalSize = isHorizontalScan ? box.height : box.width;
+  const maxExpansion = Math.round(
+    Math.min(
+      Math.max(axisSize * 1.35, 18),
+      84,
+      isHorizontalScan ? displayWidth : displayHeight
+    )
+  );
+  const orthogonalInset = Math.min(
+    Math.max(4, orthogonalSize * 0.14),
+    Math.max(0, orthogonalSize / 2 - 2)
+  );
+  const stripSpan = Math.max(4, orthogonalSize - orthogonalInset * 2);
+  let lastInteriorEdge =
+    direction === 'left' || direction === 'top'
+      ? (direction === 'left' ? box.x : box.y)
+      : (direction === 'right' ? box.x + box.width : box.y + box.height);
+  let misses = 0;
+
+  for (let offset = step; offset <= maxExpansion; offset += step) {
+    let stripX = box.x;
+    let stripY = box.y;
+    let stripWidth = box.width;
+    let stripHeight = box.height;
+
+    if (direction === 'left') {
+      stripX = box.x - offset;
+      stripY = box.y + orthogonalInset;
+      stripWidth = step;
+      stripHeight = stripSpan;
+    } else if (direction === 'right') {
+      stripX = box.x + box.width + offset - step;
+      stripY = box.y + orthogonalInset;
+      stripWidth = step;
+      stripHeight = stripSpan;
+    } else if (direction === 'top') {
+      stripX = box.x + orthogonalInset;
+      stripY = box.y - offset;
+      stripWidth = stripSpan;
+      stripHeight = step;
+    } else {
+      stripX = box.x + orthogonalInset;
+      stripY = box.y + box.height + offset - step;
+      stripWidth = stripSpan;
+      stripHeight = step;
+    }
+
+    const similarity = measureRegionSimilarity(
+      ctx,
+      stripX,
+      stripY,
+      stripWidth,
+      stripHeight,
+      referenceColor
+    );
+
+    if (similarity >= 0.6) {
+      if (direction === 'left') {
+        lastInteriorEdge = stripX;
+      } else if (direction === 'right') {
+        lastInteriorEdge = stripX + stripWidth;
+      } else if (direction === 'top') {
+        lastInteriorEdge = stripY;
+      } else {
+        lastInteriorEdge = stripY + stripHeight;
+      }
+      misses = 0;
+      continue;
+    }
+
+    misses++;
+
+    if (misses >= 2) {
+      return {
+        edge: lastInteriorEdge,
+        boundaryFound: true
+      };
+    }
+  }
+
+  return {
+    edge: lastInteriorEdge,
+    boundaryFound: false
+  };
+}
+
+function insetBox(box, inset) {
+  const safeInset = clamp(
+    inset,
+    0,
+    Math.max(0, Math.min(box.width / 2 - 1, box.height / 2 - 1))
+  );
+
+  return {
+    x: box.x + safeInset,
+    y: box.y + safeInset,
+    width: Math.max(1, box.width - safeInset * 2),
+    height: Math.max(1, box.height - safeInset * 2)
+  };
+}
+
+function insetBoxBySide(box, insets = {}) {
+  const leftInset = Math.max(0, Number(insets.left) || 0);
+  const rightInset = Math.max(0, Number(insets.right) || 0);
+  const topInset = Math.max(0, Number(insets.top) || 0);
+  const bottomInset = Math.max(0, Number(insets.bottom) || 0);
+  const maxHorizontalInset = Math.max(0, box.width - 1);
+  const maxVerticalInset = Math.max(0, box.height - 1);
+  const horizontalScale =
+    leftInset + rightInset > maxHorizontalInset && leftInset + rightInset > 0
+      ? maxHorizontalInset / (leftInset + rightInset)
+      : 1;
+  const verticalScale =
+    topInset + bottomInset > maxVerticalInset && topInset + bottomInset > 0
+      ? maxVerticalInset / (topInset + bottomInset)
+      : 1;
+  const safeLeftInset = leftInset * horizontalScale;
+  const safeRightInset = rightInset * horizontalScale;
+  const safeTopInset = topInset * verticalScale;
+  const safeBottomInset = bottomInset * verticalScale;
+
+  return {
+    x: box.x + safeLeftInset,
+    y: box.y + safeTopInset,
+    width: Math.max(1, box.width - safeLeftInset - safeRightInset),
+    height: Math.max(1, box.height - safeTopInset - safeBottomInset)
+  };
+}
+
+function expandBox(box, padding, maxWidth, maxHeight) {
+  const safePadding = Math.max(0, padding);
+  const left = clamp(box.x - safePadding, 0, maxWidth);
+  const top = clamp(box.y - safePadding, 0, maxHeight);
+  const right = clamp(box.x + box.width + safePadding, left + 1, maxWidth);
+  const bottom = clamp(box.y + box.height + safePadding, top + 1, maxHeight);
+
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top)
+  };
+}
+
+function intersectBoxes(primaryBox, clipBox) {
+  const left = Math.max(primaryBox.x, clipBox.x);
+  const top = Math.max(primaryBox.y, clipBox.y);
+  const right = Math.min(primaryBox.x + primaryBox.width, clipBox.x + clipBox.width);
+  const bottom = Math.min(primaryBox.y + primaryBox.height, clipBox.y + clipBox.height);
+
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top
+  };
+}
+
+function resolveContainerBoxes(ctx, box, displayWidth, displayHeight) {
+  const initialFillColor =
+    sampleDominantRegionColor(ctx, box.x, box.y, box.width, box.height) ||
+    sampleBackgroundColor(ctx, box.x, box.y, box.width, box.height);
+  const left = scanContainerBoundary(ctx, box, initialFillColor, 'left', displayWidth, displayHeight);
+  const right = scanContainerBoundary(ctx, box, initialFillColor, 'right', displayWidth, displayHeight);
+  const top = scanContainerBoundary(ctx, box, initialFillColor, 'top', displayWidth, displayHeight);
+  const bottom = scanContainerBoundary(ctx, box, initialFillColor, 'bottom', displayWidth, displayHeight);
+  const rawLeft = left.boundaryFound ? left.edge : box.x;
+  const rawTop = top.boundaryFound ? top.edge : box.y;
+  const rawRight = right.boundaryFound ? right.edge : box.x + box.width;
+  const rawBottom = bottom.boundaryFound ? bottom.edge : box.y + box.height;
+  const containerLeft = clamp(Math.min(rawLeft, rawRight - 1), 0, Math.max(0, displayWidth - 1));
+  const containerTop = clamp(Math.min(rawTop, rawBottom - 1), 0, Math.max(0, displayHeight - 1));
+  const containerRight = clamp(Math.max(rawRight, containerLeft + 1), containerLeft + 1, displayWidth);
+  const containerBottom = clamp(Math.max(rawBottom, containerTop + 1), containerTop + 1, displayHeight);
+  const containerBox = {
+    x: containerLeft,
+    y: containerTop,
+    width: Math.max(1, containerRight - containerLeft),
+    height: Math.max(1, containerBottom - containerTop)
+  };
+  const boundaryCount = [
+    left.boundaryFound,
+    right.boundaryFound,
+    top.boundaryFound,
+    bottom.boundaryFound
+  ].filter(Boolean).length;
+  const fillColor =
+    sampleDominantRegionColor(
+      ctx,
+      containerBox.x,
+      containerBox.y,
+      containerBox.width,
+      containerBox.height
+    ) || initialFillColor;
+  const cleanupBorderInset = boundaryCount
+    ? Math.max(1.5, Math.min(containerBox.width, containerBox.height) * 0.012)
+    : 0;
+  const renderInset = boundaryCount
+    ? Math.max(6, Math.min(containerBox.width, containerBox.height) * 0.08)
+    : Math.max(4, Math.min(containerBox.width, containerBox.height) * 0.05);
+  const cleanupClipBox = insetBoxBySide(containerBox, {
+    left: left.boundaryFound ? cleanupBorderInset : 0,
+    right: right.boundaryFound ? cleanupBorderInset : 0,
+    top: top.boundaryFound ? cleanupBorderInset : 0,
+    bottom: bottom.boundaryFound ? cleanupBorderInset : 0
+  });
+  const renderBox = insetBoxBySide(containerBox, {
+    left: left.boundaryFound ? renderInset : Math.max(2, renderInset * 0.45),
+    right: right.boundaryFound ? renderInset : Math.max(2, renderInset * 0.45),
+    top: top.boundaryFound ? renderInset : Math.max(2, renderInset * 0.45),
+    bottom: bottom.boundaryFound ? renderInset : Math.max(2, renderInset * 0.45)
+  });
+
+  return {
+    containerBox,
+    cleanupClipBox,
+    renderBox,
+    fillColor,
+    boundaryCount
+  };
+}
+
 /*
  * --------------------------------------------------------------------------
  * Contrast Color Helper
@@ -1150,42 +1534,34 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
     if (box.width < 10 || box.height < 8) continue;
 
     /*
-     * STEP 1: Sample the background color from the original image
-     * around this bounding box.
+     * STEP 1: Expand the OCR box toward the original speech bubble or
+     * label container so the translated text can fit inside that shape
+     * without painting over its outline.
      */
-    const maskPadding = Math.max(
-      TEXT_RENDER_TUNING.maskPaddingPx,
-      Math.min(box.width, box.height) * TEXT_RENDER_TUNING.maskPaddingRatio
-    );
-    const cleanupLeft = clamp(box.x - maskPadding, 0, displayWidth);
-    const cleanupTop = clamp(box.y - maskPadding, 0, displayHeight);
-    const cleanupRight = clamp(box.x + box.width + maskPadding, 0, displayWidth);
-    const cleanupBottom = clamp(box.y + box.height + maskPadding, 0, displayHeight);
-    const cleanupBox = {
-      x: cleanupLeft,
-      y: cleanupTop,
-      width: Math.max(0, cleanupRight - cleanupLeft),
-      height: Math.max(0, cleanupBottom - cleanupTop)
-    };
-    const bgColor = sampleBackgroundColor(
+    const { containerBox, cleanupClipBox, renderBox, fillColor, boundaryCount } = resolveContainerBoxes(
       samplingCtx,
-      cleanupBox.x,
-      cleanupBox.y,
-      cleanupBox.width,
-      cleanupBox.height
+      box,
+      displayWidth,
+      displayHeight
     );
 
+    const maskPadding = Math.max(
+      TEXT_RENDER_TUNING.maskPaddingPx,
+      Math.min(box.width, box.height) * (TEXT_RENDER_TUNING.maskPaddingRatio + 0.02)
+    );
+    const expandedTextBox = expandBox(box, maskPadding, displayWidth, displayHeight);
+    const cleanupBox = intersectBoxes(expandedTextBox, cleanupClipBox) || cleanupClipBox;
+
     /*
-     * STEP 2: Fill a rounded rectangle over the original text area with
-     * the sampled background color at full opacity. This "erases" the
-     * original text cleanly.
+     * STEP 2: Fill only the container interior, leaving the original
+     * bubble or box border visible around the translated text.
      *
-     * We extend the rectangle slightly (3px) to cover anti-aliased edges
-     * and use rounded corners to better match speech bubble shapes.
+     * The cleanup box follows the OCR region plus padding, but it is
+     * clipped to a thin inset just inside the detected border.
      */
     const cornerRadius = Math.min(10, cleanupBox.width * 0.08, cleanupBox.height * 0.08);
 
-    ctx.fillStyle = `rgb(${bgColor.r}, ${bgColor.g}, ${bgColor.b})`;
+    ctx.fillStyle = `rgb(${fillColor.r}, ${fillColor.g}, ${fillColor.b})`;
     ctx.beginPath();
     ctx.roundRect(cleanupBox.x, cleanupBox.y, cleanupBox.width, cleanupBox.height, cornerRadius);
     ctx.fill();
@@ -1196,10 +1572,10 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      */
     const innerPadding = Math.max(
       TEXT_RENDER_TUNING.innerPaddingPx,
-      Math.min(box.width, box.height) * TEXT_RENDER_TUNING.innerPaddingRatio
+      Math.min(renderBox.width, renderBox.height) * TEXT_RENDER_TUNING.innerPaddingRatio
     );
-    const innerWidth = box.width - innerPadding * 2;
-    const innerHeight = box.height - innerPadding * 2;
+    const innerWidth = renderBox.width - innerPadding * 2;
+    const innerHeight = renderBox.height - innerPadding * 2;
 
     if (innerWidth < 5 || innerHeight < 5) continue;
 
@@ -1214,7 +1590,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * STEP 4: Determine text color for maximum contrast against the
      * sampled background.
      */
-    const textColor = getContrastColor(bgColor);
+    const textColor = getContrastColor(fillColor);
     const outlineColor = textColor === 'black' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.4)';
 
     /*
@@ -1236,9 +1612,9 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
 
       for (let colIdx = 0; colIdx < lines.length; colIdx++) {
         const column = lines[colIdx];
-        const colX = box.x + innerPadding + innerWidth - (colIdx + 1) * columnWidth;
+        const colX = renderBox.x + innerPadding + innerWidth - (colIdx + 1) * columnWidth;
         const totalColumnHeight = column.length * charHeight;
-        const startY = box.y + innerPadding + Math.max(0, (innerHeight - totalColumnHeight) / 2);
+        const startY = renderBox.y + innerPadding + Math.max(0, (innerHeight - totalColumnHeight) / 2);
 
         for (let charIdx = 0; charIdx < column.length; charIdx++) {
           const char = column[charIdx];
@@ -1263,8 +1639,8 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       const totalTextHeight = lines.length * lineHeight;
       const shouldCenterVertically = textAlignment === 'center' && lines.length <= 2;
       const startY = shouldCenterVertically
-        ? box.y + innerPadding + Math.max(0, (innerHeight - totalTextHeight) / 2)
-        : box.y + innerPadding;
+        ? renderBox.y + innerPadding + Math.max(0, (innerHeight - totalTextHeight) / 2)
+        : renderBox.y + innerPadding;
 
       if (textAlignment === 'center') {
         ctx.textAlign = 'center';
@@ -1278,10 +1654,10 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
         const line = lines[lineIdx];
         const lineX =
           textAlignment === 'center'
-            ? box.x + innerPadding + innerWidth / 2
+            ? renderBox.x + innerPadding + innerWidth / 2
             : textAlignment === 'right'
-              ? box.x + innerPadding + innerWidth
-              : box.x + innerPadding;
+              ? renderBox.x + innerPadding + innerWidth
+              : renderBox.x + innerPadding;
         const lineY = startY + lineIdx * lineHeight;
 
         /* Draw text outline for readability */
@@ -1305,8 +1681,8 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       ctx.strokeStyle = 'rgba(255, 193, 7, 0.5)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(box.x, box.y + box.height);
-      ctx.lineTo(box.x + box.width, box.y + box.height);
+      ctx.moveTo(renderBox.x, renderBox.y + renderBox.height);
+      ctx.lineTo(renderBox.x + renderBox.width, renderBox.y + renderBox.height);
       ctx.stroke();
     }
 
@@ -1314,8 +1690,12 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       console.log('[VisionTranslate Overlay] Render block', {
         id: ocr.id || i,
         rawCount: ocr.rawIds?.length || 1,
-        renderBox: box,
+        originalBox: box,
+        containerBox,
+        cleanupClipBox,
         cleanupBox,
+        renderBox,
+        detectedBoundaries: boundaryCount,
         alignment: textAlignment,
         fontSize: Number(fontSize.toFixed(2)),
         lineHeight: Number(lineHeight.toFixed(2)),
@@ -1333,8 +1713,14 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       ctx.strokeStyle = 'rgba(255, 87, 34, 0.9)';
       ctx.setLineDash([6, 4]);
       ctx.strokeRect(box.x, box.y, box.width, box.height);
+      ctx.strokeStyle = 'rgba(0, 150, 136, 0.9)';
+      ctx.strokeRect(containerBox.x, containerBox.y, containerBox.width, containerBox.height);
+      ctx.strokeStyle = 'rgba(156, 39, 176, 0.9)';
+      ctx.strokeRect(cleanupClipBox.x, cleanupClipBox.y, cleanupClipBox.width, cleanupClipBox.height);
       ctx.strokeStyle = 'rgba(233, 30, 99, 0.9)';
       ctx.strokeRect(cleanupBox.x, cleanupBox.y, cleanupBox.width, cleanupBox.height);
+      ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)';
+      ctx.strokeRect(renderBox.x, renderBox.y, renderBox.width, renderBox.height);
       ctx.restore();
     }
   }
