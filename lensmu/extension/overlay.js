@@ -303,6 +303,516 @@ function getConfidenceBorderColor(confidence) {
   }
 }
 
+const DEBUG_RENDER_LOGS = true;
+const DEBUG_DRAW_OVERLAYS = false;
+
+export const OCR_BLOCK_TUNING = {
+  paragraphMergeGapMultiplier: 1.35,
+  paragraphMergeGapPx: 18,
+  sameLineOverlapRatio: 0.55,
+  sameLineGapMultiplier: 1.8,
+  sameLineGapPx: 24,
+  columnOverlapRatio: 0.2,
+  edgeAlignmentToleranceMultiplier: 0.9,
+  edgeAlignmentTolerancePx: 24,
+  centerAlignmentToleranceRatio: 0.18,
+  centerAlignmentTolerancePx: 24
+};
+
+export const TEXT_RENDER_TUNING = {
+  maskPaddingPx: 6,
+  maskPaddingRatio: 0.08,
+  innerPaddingPx: 5,
+  innerPaddingRatio: 0.08,
+  minFontSize: 8,
+  maxFontSize: 72,
+  minLineHeight: 1.08,
+  maxLineHeight: 1.3,
+  titleCenterWordThreshold: 10
+};
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function rangeOverlap(startA, endA, startB, endB) {
+  return Math.max(0, Math.min(endA, endB) - Math.max(startA, startB));
+}
+
+function rangeOverlapRatio(startA, endA, startB, endB) {
+  const minSpan = Math.max(1, Math.min(endA - startA, endB - startB));
+  return rangeOverlap(startA, endA, startB, endB) / minSpan;
+}
+
+function rangeGap(startA, endA, startB, endB) {
+  if (endA < startB) return startB - endA;
+  if (endB < startA) return startA - endB;
+  return 0;
+}
+
+function getBoxRight(box) {
+  return box.x + box.width;
+}
+
+function getBoxBottom(box) {
+  return box.y + box.height;
+}
+
+function unionBoxes(boxes) {
+  if (!boxes.length) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+
+  const minX = Math.min(...boxes.map((box) => box.x));
+  const minY = Math.min(...boxes.map((box) => box.y));
+  const maxX = Math.max(...boxes.map((box) => getBoxRight(box)));
+  const maxY = Math.max(...boxes.map((box) => getBoxBottom(box)));
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}
+
+function detectCJK(text) {
+  return /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/.test(text);
+}
+
+function shouldInsertSpace(previousText, nextText) {
+  if (!previousText || !nextText) return false;
+  if (detectCJK(previousText) || detectCJK(nextText)) return false;
+  if (/[-/]$/.test(previousText)) return false;
+  if (/^[,.;:!?%)}\]]/.test(nextText)) return false;
+  return true;
+}
+
+function getReadingOrderComparator(orientation) {
+  if (orientation === 'vertical') {
+    return (a, b) => {
+      const xDiff = b.bbox.x - a.bbox.x;
+      if (Math.abs(xDiff) > 4) return xDiff;
+      return a.bbox.y - b.bbox.y;
+    };
+  }
+
+  return (a, b) => {
+    const yDiff = a.bbox.y - b.bbox.y;
+    if (Math.abs(yDiff) > 4) return yDiff;
+    return a.bbox.x - b.bbox.x;
+  };
+}
+
+function clusterMembersByLine(members, orientation) {
+  if (!members.length) return [];
+
+  const comparator = getReadingOrderComparator(orientation);
+  const sorted = [...members].sort(comparator);
+  const groups = [];
+
+  for (const member of sorted) {
+    const box = member.bbox;
+    let placed = false;
+
+    for (const group of groups) {
+      const groupBox = unionBoxes(group.map((item) => item.bbox));
+      const sameLine =
+        orientation === 'vertical'
+          ? rangeOverlapRatio(groupBox.x, getBoxRight(groupBox), box.x, getBoxRight(box)) >= 0.45
+          : rangeOverlapRatio(groupBox.y, getBoxBottom(groupBox), box.y, getBoxBottom(box)) >= 0.45;
+
+      if (sameLine) {
+        group.push(member);
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      groups.push([member]);
+    }
+  }
+
+  return groups.map((group) => [...group].sort(comparator));
+}
+
+function detectBlockAlignment(members, orientation, bbox) {
+  if (orientation === 'vertical') {
+    return 'center';
+  }
+
+  const lineGroups = clusterMembersByLine(members, orientation).map((group) =>
+    unionBoxes(group.map((item) => item.bbox))
+  );
+
+  if (lineGroups.length <= 1) {
+    const wordCount = members[0]?.text?.trim().split(/\s+/).filter(Boolean).length || 0;
+    if (
+      wordCount > 0 &&
+      wordCount <= TEXT_RENDER_TUNING.titleCenterWordThreshold &&
+      bbox.width > bbox.height * 2.4
+    ) {
+      return 'center';
+    }
+    return 'left';
+  }
+
+  const leftValues = lineGroups.map((lineBox) => lineBox.x);
+  const rightValues = lineGroups.map((lineBox) => getBoxRight(lineBox));
+  const centerValues = lineGroups.map((lineBox) => lineBox.x + lineBox.width / 2);
+  const tolerance = Math.max(12, bbox.width * 0.12);
+
+  const leftSpread = Math.max(...leftValues) - Math.min(...leftValues);
+  const rightSpread = Math.max(...rightValues) - Math.min(...rightValues);
+  const centerSpread = Math.max(...centerValues) - Math.min(...centerValues);
+
+  if (centerSpread <= tolerance && leftSpread > tolerance * 0.8 && rightSpread > tolerance * 0.8) {
+    return 'center';
+  }
+
+  if (leftSpread <= tolerance) {
+    return 'left';
+  }
+
+  if (rightSpread <= tolerance) {
+    return 'right';
+  }
+
+  return 'left';
+}
+
+function getAxisMetrics(box, orientation) {
+  if (orientation === 'vertical') {
+    return {
+      flowStart: box.x,
+      flowEnd: getBoxRight(box),
+      flowSize: box.width,
+      lineStart: box.y,
+      lineEnd: getBoxBottom(box),
+      lineSize: box.height
+    };
+  }
+
+  return {
+    flowStart: box.y,
+    flowEnd: getBoxBottom(box),
+    flowSize: box.height,
+    lineStart: box.x,
+    lineEnd: getBoxRight(box),
+    lineSize: box.width
+  };
+}
+
+function canMergeBlocks(a, b) {
+  const aIsVertical = a.orientation === 'vertical';
+  const bIsVertical = b.orientation === 'vertical';
+
+  if (aIsVertical !== bIsVertical) {
+    return false;
+  }
+
+  const orientation = aIsVertical ? 'vertical' : 'horizontal';
+  const aAxis = getAxisMetrics(a.bbox, orientation);
+  const bAxis = getAxisMetrics(b.bbox, orientation);
+  const lineOverlapRatio = rangeOverlapRatio(
+    aAxis.lineStart,
+    aAxis.lineEnd,
+    bAxis.lineStart,
+    bAxis.lineEnd
+  );
+  const flowOverlapRatio = rangeOverlapRatio(
+    aAxis.flowStart,
+    aAxis.flowEnd,
+    bAxis.flowStart,
+    bAxis.flowEnd
+  );
+  const lineGap = rangeGap(aAxis.lineStart, aAxis.lineEnd, bAxis.lineStart, bAxis.lineEnd);
+  const flowGap = rangeGap(aAxis.flowStart, aAxis.flowEnd, bAxis.flowStart, bAxis.flowEnd);
+  const averageFlowSize = (aAxis.flowSize + bAxis.flowSize) / 2;
+  const edgeTolerance = Math.max(
+    OCR_BLOCK_TUNING.edgeAlignmentTolerancePx,
+    averageFlowSize * OCR_BLOCK_TUNING.edgeAlignmentToleranceMultiplier
+  );
+  const centerTolerance = Math.max(
+    OCR_BLOCK_TUNING.centerAlignmentTolerancePx,
+    Math.min(aAxis.lineSize, bAxis.lineSize) * OCR_BLOCK_TUNING.centerAlignmentToleranceRatio
+  );
+  const sameLine =
+    flowOverlapRatio >= OCR_BLOCK_TUNING.sameLineOverlapRatio &&
+    lineGap <= Math.max(
+      OCR_BLOCK_TUNING.sameLineGapPx,
+      averageFlowSize * OCR_BLOCK_TUNING.sameLineGapMultiplier
+    );
+
+  if (sameLine) {
+    return true;
+  }
+
+  const alignedAlongLine =
+    lineOverlapRatio >= OCR_BLOCK_TUNING.columnOverlapRatio ||
+    Math.abs(aAxis.lineStart - bAxis.lineStart) <= edgeTolerance ||
+    Math.abs(aAxis.lineEnd - bAxis.lineEnd) <= edgeTolerance ||
+    Math.abs((aAxis.lineStart + aAxis.lineEnd) / 2 - (bAxis.lineStart + bAxis.lineEnd) / 2) <= centerTolerance;
+
+  return (
+    alignedAlongLine &&
+    flowGap <= Math.max(
+      OCR_BLOCK_TUNING.paragraphMergeGapPx,
+      averageFlowSize * OCR_BLOCK_TUNING.paragraphMergeGapMultiplier
+    )
+  );
+}
+
+function joinGroupText(members, orientation) {
+  const sorted = [...members].sort(getReadingOrderComparator(orientation));
+  let combined = '';
+  let previous = '';
+
+  for (const member of sorted) {
+    const nextText = String(member.text || '').replace(/\s+/g, ' ').trim();
+    if (!nextText) continue;
+
+    if (!combined) {
+      combined = nextText;
+      previous = nextText;
+      continue;
+    }
+
+    combined += shouldInsertSpace(previous, nextText) ? ` ${nextText}` : nextText;
+    previous = nextText;
+  }
+
+  return combined.trim();
+}
+
+function normalizeRawBlock(rawBlock, index) {
+  const bbox = rawBlock?.bbox || {};
+  const width = Math.max(0, Number(bbox.width) || 0);
+  const height = Math.max(0, Number(bbox.height) || 0);
+
+  return {
+    id: index,
+    text: String(rawBlock?.text || '').trim(),
+    confidence: Number(rawBlock?.confidence) || 0,
+    orientation: rawBlock?.orientation === 'vertical' ? 'vertical' : 'horizontal',
+    bbox: {
+      x: Number(bbox.x) || 0,
+      y: Number(bbox.y) || 0,
+      width,
+      height
+    }
+  };
+}
+
+export function groupTextBlocks(ocrResults = []) {
+  const normalized = ocrResults
+    .map(normalizeRawBlock)
+    .filter((block) => block.text && block.bbox.width > 1 && block.bbox.height > 1);
+
+  if (normalized.length <= 1) {
+    return normalized.map((block, index) => ({
+      ...block,
+      id: `block-${index}`,
+      rawIds: [block.id],
+      rawBoxes: [block.bbox],
+      alignment: detectBlockAlignment([block], block.orientation, block.bbox),
+      members: [block]
+    }));
+  }
+
+  const parent = normalized.map((_, index) => index);
+
+  function find(index) {
+    if (parent[index] !== index) {
+      parent[index] = find(parent[index]);
+    }
+    return parent[index];
+  }
+
+  function union(aIndex, bIndex) {
+    const rootA = find(aIndex);
+    const rootB = find(bIndex);
+    if (rootA !== rootB) {
+      parent[rootB] = rootA;
+    }
+  }
+
+  for (let i = 0; i < normalized.length; i++) {
+    for (let j = i + 1; j < normalized.length; j++) {
+      if (canMergeBlocks(normalized[i], normalized[j])) {
+        union(i, j);
+      }
+    }
+  }
+
+  const groups = new Map();
+
+  normalized.forEach((block, index) => {
+    const root = find(index);
+    if (!groups.has(root)) {
+      groups.set(root, []);
+    }
+    groups.get(root).push(block);
+  });
+
+  const mergedBlocks = [...groups.values()]
+    .map((members, index) => {
+      const verticalCount = members.filter((member) => member.orientation === 'vertical').length;
+      const orientation = verticalCount > members.length / 2 ? 'vertical' : 'horizontal';
+      const bbox = unionBoxes(members.map((member) => member.bbox));
+      const confidence =
+        members.reduce((sum, member) => sum + member.confidence, 0) / Math.max(1, members.length);
+
+      return {
+        id: `block-${index}`,
+        text: joinGroupText(members, orientation),
+        confidence,
+        orientation,
+        bbox,
+        alignment: detectBlockAlignment(members, orientation, bbox),
+        rawIds: members.map((member) => member.id),
+        rawBoxes: members.map((member) => member.bbox),
+        members
+      };
+    })
+    .filter((block) => block.text.length > 0)
+    .sort(getReadingOrderComparator('horizontal'));
+
+  if (DEBUG_RENDER_LOGS) {
+    console.groupCollapsed(
+      `[VisionTranslate Overlay] Grouped ${normalized.length} OCR boxes into ${mergedBlocks.length} text blocks`
+    );
+    console.table(
+      normalized.map((block) => ({
+        id: block.id,
+        text: block.text,
+        x: Math.round(block.bbox.x),
+        y: Math.round(block.bbox.y),
+        width: Math.round(block.bbox.width),
+        height: Math.round(block.bbox.height),
+        orientation: block.orientation
+      }))
+    );
+    console.table(
+      mergedBlocks.map((block) => ({
+        id: block.id,
+        text: block.text,
+        x: Math.round(block.bbox.x),
+        y: Math.round(block.bbox.y),
+        width: Math.round(block.bbox.width),
+        height: Math.round(block.bbox.height),
+        alignment: block.alignment,
+        rawCount: block.rawIds.length
+      }))
+    );
+    console.groupEnd();
+  }
+
+  return mergedBlocks;
+}
+
+function normalizeTranslationText(text) {
+  return String(text || '')
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function splitOversizedToken(ctx, token, maxWidth) {
+  const pieces = [];
+  let current = '';
+
+  for (const char of Array.from(token)) {
+    const next = current + char;
+    if (!current || ctx.measureText(next).width <= maxWidth) {
+      current = next;
+      continue;
+    }
+
+    pieces.push(current);
+    current = char;
+  }
+
+  if (current) {
+    pieces.push(current);
+  }
+
+  return pieces;
+}
+
+function tokenizeForWrap(text) {
+  const normalized = normalizeTranslationText(text);
+
+  if (!normalized) {
+    return { tokens: [], separator: ' ' };
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return { tokens: words, separator: ' ' };
+  }
+
+  if (detectCJK(normalized) || normalized.length > 20) {
+    return { tokens: Array.from(normalized), separator: '' };
+  }
+
+  return { tokens: [normalized], separator: '' };
+}
+
+function wrapText(ctx, text, maxWidth) {
+  const { tokens, separator } = tokenizeForWrap(text);
+
+  if (!tokens.length) {
+    return [''];
+  }
+
+  const lines = [];
+  let currentLine = '';
+
+  for (const token of tokens) {
+    const candidate = currentLine ? `${currentLine}${separator}${token}` : token;
+
+    if (!currentLine || ctx.measureText(candidate).width <= maxWidth) {
+      currentLine = candidate;
+      continue;
+    }
+
+    if (ctx.measureText(token).width > maxWidth) {
+      const tokenPieces = splitOversizedToken(ctx, token, maxWidth);
+
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = '';
+      }
+
+      for (const piece of tokenPieces) {
+        if (ctx.measureText(piece).width <= maxWidth) {
+          if (!currentLine) {
+            currentLine = piece;
+          } else if (ctx.measureText(`${currentLine}${separator}${piece}`).width <= maxWidth) {
+            currentLine = `${currentLine}${separator}${piece}`;
+          } else {
+            lines.push(currentLine);
+            currentLine = piece;
+          }
+        }
+      }
+
+      continue;
+    }
+
+    lines.push(currentLine);
+    currentLine = token;
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.length ? lines : [''];
+}
+
 /*
  * --------------------------------------------------------------------------
  * Auto-Size Font to Fit Bounding Box
@@ -326,153 +836,93 @@ function getConfidenceBorderColor(confidence) {
  * @param {number} maxHeight — Maximum height in pixels
  * @param {string} fontFamily — Font family to use
  * @param {boolean} isVertical — Whether to render text vertically
- * @returns {{fontSize: number, lines: string[]}}
- *          The best font size and the text split into lines.
+ * @returns {{fontSize: number, lines: string[], lineHeight: number}}
+ *          The best font size and layout metrics for the text block.
  */
 function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
-  /*
-   * Font size boundaries for binary search.
-   * MIN: 6px is the smallest readable font size.
-   * MAX: We cap at the bounding box height (or width for vertical text)
-   * because the font can never be larger than the box itself.
-   */
-  const MIN_FONT_SIZE = 6;
-  const MAX_FONT_SIZE = isVertical ? maxWidth : maxHeight;
+  const minFontSize = TEXT_RENDER_TUNING.minFontSize;
+  const maxFontSize = Math.min(
+    TEXT_RENDER_TUNING.maxFontSize,
+    isVertical ? maxWidth : Math.max(maxWidth, maxHeight)
+  );
 
-  /*
-   * Padding: leave a small margin inside the bounding box so text
-   * doesn't touch the edges. 4px total (2px on each side).
-   */
-  const PADDING = 4;
-  const availableWidth = maxWidth - PADDING;
-  const availableHeight = maxHeight - PADDING;
-
-  if (availableWidth <= 0 || availableHeight <= 0) {
-    return { fontSize: MIN_FONT_SIZE, lines: [text] };
+  if (maxWidth <= 1 || maxHeight <= 1) {
+    return {
+      fontSize: minFontSize,
+      lines: [normalizeTranslationText(text)],
+      lineHeight: minFontSize * TEXT_RENDER_TUNING.minLineHeight
+    };
   }
 
-  /*
-   * Helper: Given a font size, split the text into lines that fit
-   * within availableWidth, and check if total height fits.
-   *
-   * Returns null if it doesn't fit, or the array of lines if it does.
-   */
   function tryFontSize(size) {
-    ctx.font = `${size}px "${fontFamily}", sans-serif`;
+    ctx.font = `${size}px ${fontFamily}`;
 
     if (isVertical) {
-      /*
-       * VERTICAL TEXT LAYOUT:
-       * For CJK vertical text, each character goes on its own "line"
-       * (actually a column). We stack characters top-to-bottom, and
-       * multiple columns go right-to-left.
-       *
-       * For vertical layout:
-       *   - "width" of a column = font size (each character is ~square)
-       *   - "height" of a column = availableHeight
-       *   - Characters per column = floor(availableHeight / size)
-       *   - Number of columns needed = ceil(charCount / charsPerColumn)
-       *   - Total width needed = columns * size
-       */
-      const charsPerColumn = Math.floor(availableHeight / (size * 1.2));
-      if (charsPerColumn <= 0) return null;
+      const normalizedText = normalizeTranslationText(text);
+      const charsPerColumn = Math.max(1, Math.floor(maxHeight / (size * 1.1)));
+      const columns = [];
 
-      const columns = Math.ceil(text.length / charsPerColumn);
-      const totalWidth = columns * size * 1.2;
-
-      if (totalWidth > availableWidth) return null;
-
-      /* Split text into column groups */
-      const lines = [];
-      for (let i = 0; i < text.length; i += charsPerColumn) {
-        lines.push(text.slice(i, i + charsPerColumn));
+      for (let i = 0; i < normalizedText.length; i += charsPerColumn) {
+        columns.push(normalizedText.slice(i, i + charsPerColumn));
       }
 
-      return lines;
-    } else {
-      /*
-       * HORIZONTAL TEXT LAYOUT:
-       * Standard left-to-right text wrapping. We split the text into
-       * words and greedily add words to each line until the line would
-       * exceed availableWidth.
-       *
-       * Line height = font size * 1.3 (standard line spacing).
-       */
-      const lineHeight = size * 1.3;
-      const words = text.split(/\s+/);
-      const lines = [];
-      let currentLine = '';
+      const columnWidth = size * 1.15;
+      const totalWidth = columns.length * columnWidth;
 
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        const metrics = ctx.measureText(testLine);
-
-        if (metrics.width > availableWidth && currentLine) {
-          /* Current line is full; start a new one */
-          lines.push(currentLine);
-          currentLine = word;
-
-          /* Check if adding a new line would exceed height */
-          if ((lines.length + 1) * lineHeight > availableHeight) {
-            /*
-             * No room for another line. Truncate with ellipsis.
-             * We replace the last line with a truncated version.
-             */
-            lines[lines.length - 1] = truncateWithEllipsis(
-              ctx, lines[lines.length - 1], availableWidth
-            );
-            return lines;
-          }
-        } else {
-          currentLine = testLine;
-        }
+      if (totalWidth > maxWidth) {
+        return null;
       }
 
-      /* Don't forget the last line */
-      if (currentLine) {
-        lines.push(currentLine);
-      }
-
-      /* Check if total height fits */
-      if (lines.length * lineHeight > availableHeight) {
-        return null; /* Doesn't fit at this font size */
-      }
-
-      return lines;
+      return {
+        lines: columns,
+        lineHeight: size * 1.1
+      };
     }
+
+    const lines = wrapText(ctx, text, maxWidth);
+    const desiredMultiplier = maxHeight / Math.max(1, lines.length * size);
+    const lineHeightMultiplier = clamp(
+      desiredMultiplier,
+      TEXT_RENDER_TUNING.minLineHeight,
+      TEXT_RENDER_TUNING.maxLineHeight
+    );
+    const lineHeight = size * lineHeightMultiplier;
+
+    if (lines.length * lineHeight > maxHeight) {
+      return null;
+    }
+
+    return {
+      lines,
+      lineHeight
+    };
   }
 
-  /*
-   * Binary search for the largest font size that fits.
-   *
-   * Binary search works by repeatedly halving the search range:
-   *   - If midpoint fits → search upper half (try bigger)
-   *   - If midpoint doesn't fit → search lower half (try smaller)
-   *
-   * We stop when the range is smaller than 0.5px (diminishing returns
-   * beyond that level of precision).
-   */
-  let low = MIN_FONT_SIZE;
-  let high = Math.min(MAX_FONT_SIZE, 72); /* Cap at 72px for sanity */
-  let bestSize = MIN_FONT_SIZE;
-  let bestLines = [text];
+  let low = minFontSize;
+  let high = Math.max(minFontSize, maxFontSize);
+  let bestLayout = {
+    fontSize: minFontSize,
+    lines: [normalizeTranslationText(text)],
+    lineHeight: minFontSize * TEXT_RENDER_TUNING.minLineHeight
+  };
 
   while (high - low > 0.5) {
     const mid = (low + high) / 2;
-    const lines = tryFontSize(mid);
+    const layout = tryFontSize(mid);
 
-    if (lines !== null) {
-      /* It fits! Try a larger size. */
-      bestSize = mid;
-      bestLines = lines;
+    if (layout) {
+      bestLayout = {
+        fontSize: mid,
+        lines: layout.lines,
+        lineHeight: layout.lineHeight
+      };
       low = mid;
     } else {
-      /* Doesn't fit. Try smaller. */
       high = mid;
     }
   }
 
-  return { fontSize: bestSize, lines: bestLines };
+  return bestLayout;
 }
 
 /*
@@ -604,7 +1054,6 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    * canvas.style.width gives us the CSS display width (e.g., "500px").
    * We parse it to get the number.
    */
-  const rect = canvas.getBoundingClientRect();
   const displayWidth = parseFloat(canvas.style.width);
   const displayHeight = parseFloat(canvas.style.height);
 
@@ -648,7 +1097,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    */
   for (let i = 0; i < ocrResults.length; i++) {
     const ocr = ocrResults[i];
-    const translatedText = translations[i];
+    const translatedText = normalizeTranslationText(translations[i]);
 
     /* Skip if no translation is available for this block */
     if (!translatedText) continue;
@@ -670,7 +1119,27 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * STEP 1: Sample the background color from the original image
      * around this bounding box.
      */
-    const bgColor = sampleBackgroundColor(samplingCtx, box.x, box.y, box.width, box.height);
+    const maskPadding = Math.max(
+      TEXT_RENDER_TUNING.maskPaddingPx,
+      Math.min(box.width, box.height) * TEXT_RENDER_TUNING.maskPaddingRatio
+    );
+    const cleanupLeft = clamp(box.x - maskPadding, 0, displayWidth);
+    const cleanupTop = clamp(box.y - maskPadding, 0, displayHeight);
+    const cleanupRight = clamp(box.x + box.width + maskPadding, 0, displayWidth);
+    const cleanupBottom = clamp(box.y + box.height + maskPadding, 0, displayHeight);
+    const cleanupBox = {
+      x: cleanupLeft,
+      y: cleanupTop,
+      width: Math.max(0, cleanupRight - cleanupLeft),
+      height: Math.max(0, cleanupBottom - cleanupTop)
+    };
+    const bgColor = sampleBackgroundColor(
+      samplingCtx,
+      cleanupBox.x,
+      cleanupBox.y,
+      cleanupBox.width,
+      cleanupBox.height
+    );
 
     /*
      * STEP 2: Fill a rounded rectangle over the original text area with
@@ -680,30 +1149,29 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * We extend the rectangle slightly (3px) to cover anti-aliased edges
      * and use rounded corners to better match speech bubble shapes.
      */
-    const BLEED = 3;
-    const fillX = box.x - BLEED;
-    const fillY = box.y - BLEED;
-    const fillW = box.width + BLEED * 2;
-    const fillH = box.height + BLEED * 2;
-    const cornerRadius = Math.min(6, fillW * 0.08, fillH * 0.08);
+    const cornerRadius = Math.min(10, cleanupBox.width * 0.08, cleanupBox.height * 0.08);
 
     ctx.fillStyle = `rgb(${bgColor.r}, ${bgColor.g}, ${bgColor.b})`;
     ctx.beginPath();
-    ctx.roundRect(fillX, fillY, fillW, fillH, cornerRadius);
+    ctx.roundRect(cleanupBox.x, cleanupBox.y, cleanupBox.width, cleanupBox.height, cornerRadius);
     ctx.fill();
 
     /*
      * STEP 3: Determine text rendering direction and auto-size the font.
      * Apply internal padding so text doesn't touch the edges.
      */
-    const PADDING = Math.max(3, Math.min(box.width, box.height) * 0.08);
-    const innerWidth = box.width - PADDING * 2;
-    const innerHeight = box.height - PADDING * 2;
+    const innerPadding = Math.max(
+      TEXT_RENDER_TUNING.innerPaddingPx,
+      Math.min(box.width, box.height) * TEXT_RENDER_TUNING.innerPaddingRatio
+    );
+    const innerWidth = box.width - innerPadding * 2;
+    const innerHeight = box.height - innerPadding * 2;
 
     if (innerWidth < 5 || innerHeight < 5) continue;
 
-    const isVertical = shouldRenderVertical(translatedText, innerWidth, innerHeight);
-    const { fontSize, lines } = autoSizeFont(
+    const isVertical =
+      ocr.orientation === 'vertical' && shouldRenderVertical(translatedText, innerWidth, innerHeight);
+    const { fontSize, lines, lineHeight } = autoSizeFont(
       ctx, translatedText, innerWidth, innerHeight, fontFamily, isVertical
     );
 
@@ -712,7 +1180,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * sampled background.
      */
     const textColor = getContrastColor(bgColor);
-    const outlineColor = textColor === '#000000' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
+    const outlineColor = textColor === 'black' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.4)';
 
     /*
      * STEP 5: Render the translated text with a subtle outline for
@@ -720,6 +1188,8 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      */
     ctx.font = `${fontSize}px ${fontFamily}`;
     ctx.textBaseline = 'top';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(1, fontSize * 0.1);
 
     if (isVertical) {
       /*
@@ -731,9 +1201,9 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
 
       for (let colIdx = 0; colIdx < lines.length; colIdx++) {
         const column = lines[colIdx];
-        const colX = box.x + PADDING + innerWidth - (colIdx + 1) * columnWidth;
+        const colX = box.x + innerPadding + innerWidth - (colIdx + 1) * columnWidth;
         const totalColumnHeight = column.length * charHeight;
-        const startY = box.y + PADDING + (innerHeight - totalColumnHeight) / 2;
+        const startY = box.y + innerPadding + Math.max(0, (innerHeight - totalColumnHeight) / 2);
 
         for (let charIdx = 0; charIdx < column.length; charIdx++) {
           const char = column[charIdx];
@@ -743,8 +1213,6 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
 
           /* Draw text outline for readability */
           ctx.strokeStyle = outlineColor;
-          ctx.lineWidth = 2;
-          ctx.lineJoin = 'round';
           ctx.strokeText(char, charX, charY);
 
           /* Draw the actual text */
@@ -755,23 +1223,34 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
     } else {
       /*
        * HORIZONTAL TEXT RENDERING:
-       * Standard left-to-right, top-to-bottom, centered in the padded area.
+       * Standard left-to-right, top-to-bottom, reflowed inside the merged block.
        */
-      const lineHeight = fontSize * 1.3;
       const totalTextHeight = lines.length * lineHeight;
-      const startY = box.y + PADDING + (innerHeight - totalTextHeight) / 2;
+      const shouldCenterVertically = ocr.alignment === 'center' && lines.length <= 2;
+      const startY = shouldCenterVertically
+        ? box.y + innerPadding + Math.max(0, (innerHeight - totalTextHeight) / 2)
+        : box.y + innerPadding;
 
-      ctx.textAlign = 'center';
+      if (ocr.alignment === 'center') {
+        ctx.textAlign = 'center';
+      } else if (ocr.alignment === 'right') {
+        ctx.textAlign = 'right';
+      } else {
+        ctx.textAlign = 'left';
+      }
 
       for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
         const line = lines[lineIdx];
-        const lineX = box.x + PADDING + innerWidth / 2;
+        const lineX =
+          ocr.alignment === 'center'
+            ? box.x + innerPadding + innerWidth / 2
+            : ocr.alignment === 'right'
+              ? box.x + innerPadding + innerWidth
+              : box.x + innerPadding;
         const lineY = startY + lineIdx * lineHeight;
 
         /* Draw text outline for readability */
         ctx.strokeStyle = outlineColor;
-        ctx.lineWidth = 2;
-        ctx.lineJoin = 'round';
         ctx.strokeText(line, lineX, lineY);
 
         /* Draw the actual text */
@@ -796,15 +1275,36 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       ctx.stroke();
     }
 
-    /*
-     * Store the scaled box coordinates as a data attribute on the canvas
-     * for hover detection. We'll read these in setupHoverDetection().
-     * Since we can't store complex data on canvas easily, we'll use
-     * a different approach — see setupHoverDetection below.
-     */
+    if (DEBUG_RENDER_LOGS) {
+      console.log('[VisionTranslate Overlay] Render block', {
+        id: ocr.id || i,
+        rawCount: ocr.rawIds?.length || 1,
+        renderBox: box,
+        cleanupBox,
+        alignment: ocr.alignment || 'left',
+        fontSize: Number(fontSize.toFixed(2)),
+        lineHeight: Number(lineHeight.toFixed(2)),
+        lineCount: lines.length
+      });
+    }
+
+    if (DEBUG_DRAW_OVERLAYS) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(41, 121, 255, 0.7)';
+      ctx.lineWidth = 1;
+      for (const rawBox of ocr.rawBoxes || []) {
+        ctx.strokeRect(rawBox.x * scaleX, rawBox.y * scaleY, rawBox.width * scaleX, rawBox.height * scaleY);
+      }
+      ctx.strokeStyle = 'rgba(255, 87, 34, 0.9)';
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
+      ctx.strokeStyle = 'rgba(233, 30, 99, 0.9)';
+      ctx.strokeRect(cleanupBox.x, cleanupBox.y, cleanupBox.width, cleanupBox.height);
+      ctx.restore();
+    }
   }
 
-  console.log(`[VisionTranslate Overlay] Rendered ${ocrResults.length} text blocks`);
+  console.log(`[VisionTranslate Overlay] Rendered ${ocrResults.length} merged text blocks`);
 }
 
 /*

@@ -94,8 +94,9 @@ let currentSettings = {};
  * {
  *   canvas: HTMLCanvasElement,     — The canvas overlay covering the image
  *   wrapper: HTMLDivElement,       — The wrapper div (position: relative)
- *   ocrResults: Array,             — OCR bounding boxes and text
- *   translations: Array,           — Translated text for each box
+ *   ocrResults: Array,             — Merged paragraph/text-block boxes
+ *   rawOcrResults: Array,          — Raw OCR boxes before block merging
+ *   translations: Array,           — Translated text for each merged block
  *   showingTranslation: boolean    — Whether translation or original is showing
  * }
  */
@@ -768,7 +769,28 @@ async function processImage(imageInfo) {
       return;
     }
 
-    console.log(`[VisionTranslate] OCR found ${ocrResults.length} text blocks`);
+    console.log(`[VisionTranslate] OCR found ${ocrResults.length} raw text boxes`);
+
+    /*
+     * STEP 2.5: Reconstruct paragraph/text blocks before translation.
+     * ---------------------------------------------------------------
+     * OCR engines frequently return line-level boxes. Rendering those
+     * independently breaks paragraph layout, so we merge related boxes
+     * into larger paragraph regions first and translate/render at the
+     * merged block level.
+     */
+    const overlayModule = await import(chrome.runtime.getURL('overlay.js'));
+    const rawOcrResults = ocrResults;
+    const mergedOcrResults = overlayModule.groupTextBlocks(rawOcrResults);
+
+    if (mergedOcrResults.length === 0) {
+      console.log('[VisionTranslate] OCR merge step produced no renderable text blocks. Skipping.');
+      return;
+    }
+
+    console.log(
+      `[VisionTranslate] Reconstructed ${mergedOcrResults.length} merged text blocks from ${rawOcrResults.length} raw OCR boxes`
+    );
 
     /*
      * STEP 3: Send extracted text to translation backend
@@ -785,7 +807,7 @@ async function processImage(imageInfo) {
      *   }
      * }
      */
-    const textsToTranslate = ocrResults.map((block) => block.text);
+    const textsToTranslate = mergedOcrResults.map((block) => block.text);
 
     const translateResponse = await chrome.runtime.sendMessage({
       action: 'TRANSLATE_REQUEST',
@@ -819,20 +841,11 @@ async function processImage(imageInfo) {
     imageOverlays.set(element, {
       canvas,
       wrapper,
-      ocrResults,
+      ocrResults: mergedOcrResults,
+      rawOcrResults,
       translations,
       showingTranslation: true
     });
-
-    /*
-     * Import overlay.js to perform the actual canvas rendering.
-     * We use dynamic import because overlay.js is a separate module.
-     *
-     * chrome.runtime.getURL() converts a relative path (within the
-     * extension) to the full chrome-extension:// URL that can be
-     * imported.
-     */
-    const overlayModule = await import(chrome.runtime.getURL('overlay.js'));
 
     /*
      * Get the image element to pass to the renderer. For background
@@ -849,15 +862,17 @@ async function processImage(imageInfo) {
       }
     }
 
-    overlayModule.renderTranslation(canvas, sourceImage, ocrResults, translations);
+    overlayModule.renderTranslation(canvas, sourceImage, mergedOcrResults, translations);
 
     /*
      * Set up hover detection for showing original text tooltips.
      * The overlay module returns this as a setup function.
      */
-    overlayModule.setupHoverDetection(canvas, ocrResults, translations);
+    overlayModule.setupHoverDetection(canvas, mergedOcrResults, translations);
 
-    console.log(`[VisionTranslate] Successfully translated image with ${ocrResults.length} text blocks`);
+    console.log(
+      `[VisionTranslate] Successfully translated image with ${mergedOcrResults.length} merged text blocks`
+    );
 
   } catch (error) {
     console.error('[VisionTranslate] Error processing image:', error);
