@@ -98,7 +98,6 @@ class PaddleOCREngine:
             use_gpu=False,            # CPU mode (change to True for GPU)
             det_db_thresh=0.3,        # detection confidence threshold
             det_db_unclip_ratio=1.8,  # expand detected regions slightly
-            show_log=False,           # suppress noisy startup logs
         )
         logger.info("PaddleOCR engine initialized successfully.")
 
