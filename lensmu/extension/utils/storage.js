@@ -128,6 +128,8 @@ const DEFAULT_SETTINGS = {
 
   /* API keys and provider-specific settings */
   googleCloudApiKey: '',
+  customOcrUrl: '',
+  customOcrApiKey: '',
   openaiApiKey: '',
   claudeApiKey: '',
   geminiApiKey: '',

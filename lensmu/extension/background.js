@@ -123,6 +123,10 @@ function normalizeOcrEngine(engine) {
     case 'cloud-vision':
     case 'google_vision':
       return 'google_vision';
+    case 'custom':
+    case 'customocr':
+    case 'custom_ocr':
+      return 'custom_ocr';
     case 'tesseract':
     default:
       return 'tesseract';
@@ -157,6 +161,54 @@ function toContentScriptBlocks(blocks = []) {
       };
     })
     .filter((block) => block.text.trim().length > 0);
+}
+
+function normalizeCustomOcrResponse(body, fallbackSourceLang = 'auto') {
+  const rawBlocks = Array.isArray(body?.blocks)
+    ? body.blocks
+    : Array.isArray(body?.detections)
+      ? body.detections
+      : [];
+
+  const blocks = rawBlocks
+    .map((block) => {
+      const text = typeof block?.text === 'string' ? block.text : String(block?.text || '');
+      const confidence = Number(block?.confidence) || 0;
+      const orientation = block?.orientation === 'vertical' ? 'vertical' : 'horizontal';
+
+      if (block?.bbox && !Array.isArray(block.bbox) && typeof block.bbox === 'object') {
+        const x = Math.round(Number(block.bbox.x) || 0);
+        const y = Math.round(Number(block.bbox.y) || 0);
+        const width = Math.max(0, Math.round(Number(block.bbox.width) || 0));
+        const height = Math.max(0, Math.round(Number(block.bbox.height) || 0));
+        return { text, confidence, orientation, bbox: { x, y, width, height } };
+      }
+
+      const bbox = Array.isArray(block?.bbox) ? block.bbox : [0, 0, 0, 0];
+      const [x1, y1, x2, y2] = bbox.map((value) => Math.round(Number(value) || 0));
+
+      return {
+        text,
+        confidence,
+        orientation,
+        bbox: {
+          x: x1,
+          y: y1,
+          width: Math.max(0, x2 - x1),
+          height: Math.max(0, y2 - y1)
+        }
+      };
+    })
+    .filter((block) => block.text.trim().length > 0);
+
+  const source_lang =
+    body?.source_lang ||
+    body?.sourceLang ||
+    body?.locale ||
+    body?.language ||
+    fallbackSourceLang;
+
+  return { blocks, source_lang };
 }
 
 /*
@@ -646,6 +698,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
              * Google Cloud Vision: call the API directly from the service worker.
              */
             const apiKey =
+              settings.customOcrApiKey ||
               settings.googleCloudApiKey ||
               settings.googleVisionApiKey ||
               settings.cloudVisionApiKey;
@@ -696,6 +749,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }),
               source_lang: visionData.responses?.[0]?.textAnnotations?.[0]?.locale || 'auto'
             };
+
+          } else if (engine === 'custom_ocr') {
+            const customOcrUrl = (settings.customOcrUrl || '').trim();
+            if (!customOcrUrl) {
+              sendResponse({ ok: false, body: { error: 'Custom OCR requires an endpoint URL. Set it in extension settings.' } });
+              break;
+            }
+
+            const rawImage = stripDataUrlPrefix(payload.imageBase64);
+            const headers = {
+              'Content-Type': 'application/json'
+            };
+
+            if (settings.customOcrApiKey) {
+              headers.Authorization = `Bearer ${settings.customOcrApiKey}`;
+            }
+
+            const customResponse = await proxyFetch(customOcrUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                image: rawImage,
+                imageBase64: rawImage,
+                sourceLang: payload.sourceLang || settings.sourceLanguage || 'auto'
+              })
+            });
+
+            if (!customResponse.ok) {
+              sendResponse(customResponse);
+              break;
+            }
+
+            if (!customResponse.body || typeof customResponse.body !== 'object') {
+              sendResponse({ ok: false, body: { error: 'Custom OCR returned a non-JSON response.' } });
+              break;
+            }
+
+            ocrResult = normalizeCustomOcrResponse(
+              customResponse.body,
+              payload.sourceLang || settings.sourceLanguage || 'auto'
+            );
 
           } else {
             /*

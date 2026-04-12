@@ -1,5 +1,6 @@
 import React from "react";
 import ApiKeyInput from "./ApiKeyInput.jsx";
+import RichSelect from "./RichSelect.jsx";
 
 export const ENGINE_OPTIONS = [
   {
@@ -7,6 +8,7 @@ export const ENGINE_OPTIONS = [
     name: "PaddleOCR",
     description: "Balanced, high-accuracy OCR with strong CJK coverage.",
     type: "server",
+    badgeVariant: "server",
     badges: ["Server", "CJK"],
   },
   {
@@ -14,6 +16,7 @@ export const ENGINE_OPTIONS = [
     name: "MangaOCR",
     description: "Best for Japanese manga bubbles, stylized lettering, and vertical text.",
     type: "server",
+    badgeVariant: "server",
     badges: ["Server", "JP"],
   },
   {
@@ -21,6 +24,7 @@ export const ENGINE_OPTIONS = [
     name: "Tesseract.js",
     description: "Runs fully in the browser with zero backend setup.",
     type: "local",
+    badgeVariant: "local",
     badges: ["Local", "No setup"],
   },
   {
@@ -28,7 +32,16 @@ export const ENGINE_OPTIONS = [
     name: "Google Cloud Vision",
     description: "Commercial OCR with broad language support and fast setup once keyed.",
     type: "cloud",
+    badgeVariant: "cloud",
     badges: ["Cloud", "API key"],
+  },
+  {
+    id: "custom_ocr",
+    name: "Custom OCR API",
+    description: "Connect your own OCR endpoint and keep the response format normalized.",
+    type: "custom",
+    badgeVariant: "custom",
+    badges: ["Custom", "API"],
   },
 ];
 
@@ -39,47 +52,22 @@ export default function OcrSettings({
   onBackendUrlChange,
   googleCloudApiKey,
   onGoogleCloudApiKeyChange,
+  customOcrUrl,
+  onCustomOcrUrlChange,
+  customOcrApiKey,
+  onCustomOcrApiKeyChange,
 }) {
   const selectedEngine = ENGINE_OPTIONS.find((option) => option.id === engine);
 
   return (
     <div className="choice-section">
-      <div className="choice-list" role="radiogroup" aria-label="OCR engine">
-        {ENGINE_OPTIONS.map((option) => (
-          <label
-            key={option.id}
-            className={`choice-card ${engine === option.id ? "is-selected" : ""}`}
-          >
-            <input
-              type="radio"
-              name="ocrEngine"
-              className="choice-input"
-              value={option.id}
-              checked={engine === option.id}
-              onChange={() => onEngineChange(option.id)}
-            />
-
-            <div className="choice-body">
-              <div className="choice-header">
-                <span className="choice-title">{option.name}</span>
-
-                <div className="choice-badges">
-                  {option.badges.map((badge) => (
-                    <span
-                      key={`${option.id}-${badge}`}
-                      className={`capability-badge capability-badge--${option.type}`}
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <p className="choice-description">{option.description}</p>
-            </div>
-          </label>
-        ))}
-      </div>
+      <RichSelect
+        id="ocr-engine-select"
+        label="OCR engine"
+        value={engine}
+        options={ENGINE_OPTIONS}
+        onChange={onEngineChange}
+      />
 
       {selectedEngine?.type === "server" && (
         <div className="config-card fade-in">
@@ -115,6 +103,51 @@ export default function OcrSettings({
           <p className="form-hint">
             Enable Cloud Vision in Google Cloud, then paste the key used for
             OCR requests here.
+          </p>
+
+          <div className="card-divider" />
+
+          <ApiKeyInput
+            label="Custom OCR API key"
+            placeholder="Optional override"
+            storageKey="customOcrApiKey"
+            value={customOcrApiKey}
+            onChange={onCustomOcrApiKeyChange}
+          />
+          <p className="form-hint">
+            Optional override for OCR-only setups. If this is filled in, the
+            OCR engine will use it before the standard Google Vision key.
+          </p>
+        </div>
+      )}
+
+      {selectedEngine?.type === "custom" && (
+        <div className="config-card fade-in">
+          <div className="form-group">
+            <label className="form-label" htmlFor="custom-ocr-url">
+              OCR endpoint URL
+            </label>
+            <input
+              id="custom-ocr-url"
+              type="url"
+              className="form-input"
+              value={customOcrUrl || ""}
+              onChange={(event) => onCustomOcrUrlChange(event.target.value)}
+              placeholder="http://localhost:3000/ocr"
+            />
+          </div>
+
+          <ApiKeyInput
+            label="Custom OCR API key"
+            placeholder="Optional for local servers"
+            storageKey="customOcrApiKey"
+            value={customOcrApiKey}
+            onChange={onCustomOcrApiKeyChange}
+          />
+
+          <p className="form-hint">
+            Sends `image` and `imageBase64` in a JSON POST body. Return either
+            `detections` with `[x1, y1, x2, y2]` boxes or normalized `blocks`.
           </p>
         </div>
       )}

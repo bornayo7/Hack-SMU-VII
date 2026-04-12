@@ -652,7 +652,6 @@ function createOverlay(imageElement) {
         if (overlay.showingTranslation) {
           icon.innerHTML = "✓";
           icon.style.background = "rgba(34, 197, 94, 0.9)";
-          setTimeout(() => { if (!icon.dataset.translating && iconContainer) iconContainer.style.opacity = "0"; }, 2000);
         } else {
           icon.innerHTML = "文A";
           icon.style.background = "rgba(59, 130, 246, 0.9)";
@@ -1073,9 +1072,9 @@ function addTranslateIcons() {
       display: flex;
       flex-direction: row-reverse;
       gap: 8px;
-      opacity: 0;
+      opacity: 1;
       transition: opacity 0.2s ease;
-      pointer-events: none;
+      pointer-events: auto;
     `;
 
     const icon = document.createElement("button");
@@ -1150,13 +1149,8 @@ function addTranslateIcons() {
     });
 
     /* Show icon on hover over the image area */
-    const showIcon = () => { iconContainer.style.opacity = "1"; };
-    const hideIcon = () => {
-      if (!icon.dataset.translating) iconContainer.style.opacity = "0";
-    };
-
-    iconAnchor.addEventListener('mouseenter', showIcon);
-    iconAnchor.addEventListener('mouseleave', hideIcon);
+    const showIcon = () => { /* iconContainer is always visible */ };
+    const hideIcon = () => { /* iconContainer is always visible */ };
 
     /* Click handler: translate just this image */
     icon.addEventListener('click', async (e) => {
@@ -1171,7 +1165,6 @@ function addTranslateIcons() {
 
         icon.innerHTML = "✓";
         icon.style.background = "rgba(34, 197, 94, 0.9)";
-        setTimeout(() => { if (!icon.dataset.translating) iconContainer.style.opacity = "0"; }, 2000);
         return;
       }
 
@@ -1195,7 +1188,6 @@ function addTranslateIcons() {
         icon.innerHTML = '✓';
         icon.style.background = 'rgba(34, 197, 94, 0.9)';
         icon.style.animation = 'none';
-        setTimeout(() => { icon.style.opacity = '0'; }, 2000);
       } catch (err) {
         /* Show error state */
         icon.innerHTML = '✗';

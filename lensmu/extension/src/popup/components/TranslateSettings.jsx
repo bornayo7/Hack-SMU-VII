@@ -1,5 +1,6 @@
 import React from "react";
 import ApiKeyInput from "./ApiKeyInput.jsx";
+import RichSelect from "./RichSelect.jsx";
 
 export const PROVIDER_OPTIONS = [
   {
@@ -8,6 +9,7 @@ export const PROVIDER_OPTIONS = [
     description: "Natural, context-aware translations for nuanced dialogue.",
     needsApiKey: "openai",
     needsModel: true,
+    badgeVariant: "provider",
     badges: ["LLM"],
   },
   {
@@ -16,6 +18,7 @@ export const PROVIDER_OPTIONS = [
     description: "Strong at preserving tone across longer or denser passages.",
     needsApiKey: "claude",
     needsModel: true,
+    badgeVariant: "provider",
     badges: ["LLM"],
   },
   {
@@ -24,6 +27,7 @@ export const PROVIDER_OPTIONS = [
     description: "Fast general-purpose model with a good quality-to-cost balance.",
     needsApiKey: "gemini",
     needsModel: true,
+    badgeVariant: "provider",
     badges: ["LLM", "Fast"],
   },
   {
@@ -32,6 +36,7 @@ export const PROVIDER_OPTIONS = [
     description: "Works with local or hosted APIs that speak the OpenAI chat format.",
     needsApiKey: "custom",
     needsModel: false,
+    badgeVariant: "provider",
     badges: ["Custom"],
   },
   {
@@ -40,6 +45,7 @@ export const PROVIDER_OPTIONS = [
     description: "Free fallback with no key required and simpler setup.",
     needsApiKey: null,
     needsModel: false,
+    badgeVariant: "provider",
     badges: ["Free"],
   },
 ];
@@ -88,46 +94,13 @@ export default function TranslateSettings({
 
   return (
     <div className="choice-section">
-      <div
-        className="choice-list"
-        role="radiogroup"
-        aria-label="Translation provider"
-      >
-        {PROVIDER_OPTIONS.map((option) => (
-          <label
-            key={option.id}
-            className={`choice-card ${provider === option.id ? "is-selected" : ""}`}
-          >
-            <input
-              type="radio"
-              name="translationProvider"
-              className="choice-input"
-              value={option.id}
-              checked={provider === option.id}
-              onChange={() => onProviderChange(option.id)}
-            />
-
-            <div className="choice-body">
-              <div className="choice-header">
-                <span className="choice-title">{option.name}</span>
-
-                <div className="choice-badges">
-                  {option.badges.map((badge) => (
-                    <span
-                      key={`${option.id}-${badge}`}
-                      className="capability-badge capability-badge--provider"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <p className="choice-description">{option.description}</p>
-            </div>
-          </label>
-        ))}
-      </div>
+      <RichSelect
+        id="translation-provider-select"
+        label="Translation provider"
+        value={provider}
+        options={PROVIDER_OPTIONS}
+        onChange={onProviderChange}
+      />
 
       {selectedProvider?.needsApiKey === "openai" && (
         <div className="config-card fade-in">

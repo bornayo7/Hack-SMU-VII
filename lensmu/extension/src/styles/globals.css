@@ -260,12 +260,18 @@ select {
 }
 
 .panel-card {
+  position: relative;
+  z-index: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
   backdrop-filter: blur(12px);
   padding: 14px;
+}
+
+.panel-card:focus-within {
+  z-index: 2;
 }
 
 .section-heading {
@@ -552,6 +558,155 @@ select {
   gap: 10px;
 }
 
+.rich-select-root {
+  position: relative;
+}
+
+.rich-select-root.is-open {
+  z-index: 20;
+}
+
+.rich-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(23, 98, 198, 0.05), transparent 72%),
+    var(--color-surface-strong);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.rich-select-trigger:hover,
+.rich-select-trigger.is-open {
+  border-color: rgba(23, 98, 198, 0.32);
+  box-shadow: 0 0 0 3px rgba(23, 98, 198, 0.1);
+}
+
+.rich-select-trigger-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.rich-select-trigger-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.rich-select-badges {
+  justify-content: flex-start;
+}
+
+.rich-select-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--color-text-muted);
+  border-bottom: 2px solid var(--color-text-muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.rich-select-chevron.is-open {
+  transform: rotate(225deg);
+}
+
+.rich-select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 16px 36px rgba(16, 24, 40, 0.18);
+  max-height: 146px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.rich-select-option {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.rich-select-option:hover,
+.rich-select-option:focus-visible {
+  border-color: rgba(23, 98, 198, 0.24);
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+.rich-select-option.is-selected {
+  border-color: rgba(23, 98, 198, 0.28);
+  background:
+    linear-gradient(180deg, rgba(23, 98, 198, 0.08), rgba(23, 98, 198, 0.04)),
+    var(--color-surface-strong);
+}
+
+.rich-select-option-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rich-select-option-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.rich-select-option-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+@media (max-width: 560px) {
+  .rich-select-trigger,
+  .rich-select-option-header,
+  .rich-select-trigger-content {
+    align-items: flex-start;
+  }
+
+  .rich-select-trigger-content,
+  .rich-select-option-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
 .choice-list {
   display: flex;
   flex-direction: column;
@@ -652,6 +807,11 @@ select {
   color: #a76706;
 }
 
+.capability-badge--custom {
+  background: rgba(121, 74, 192, 0.13);
+  color: #7445b9;
+}
+
 .capability-badge--provider {
   background: rgba(23, 98, 198, 0.12);
   color: var(--color-accent);
@@ -671,6 +831,11 @@ select {
 :root.dark .capability-badge--cloud {
   background: rgba(255, 191, 92, 0.16);
   color: #ffd18a;
+}
+
+:root.dark .capability-badge--custom {
+  background: rgba(178, 135, 255, 0.16);
+  color: #ceb2ff;
 }
 
 .config-card {

@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS = {
   targetLanguage: "en",
   backendUrl: "http://localhost:8000",
   googleCloudApiKey: "",
+  customOcrUrl: "",
+  customOcrApiKey: "",
   openaiApiKey: "",
   claudeApiKey: "",
   geminiApiKey: "",
@@ -624,6 +626,14 @@ export default function App() {
                 googleCloudApiKey={settings.googleCloudApiKey}
                 onGoogleCloudApiKeyChange={(value) =>
                   updateSetting("googleCloudApiKey", value)
+                }
+                customOcrUrl={settings.customOcrUrl}
+                onCustomOcrUrlChange={(value) =>
+                  updateSetting("customOcrUrl", value)
+                }
+                customOcrApiKey={settings.customOcrApiKey}
+                onCustomOcrApiKeyChange={(value) =>
+                  updateSetting("customOcrApiKey", value)
                 }
               />
             </section>
