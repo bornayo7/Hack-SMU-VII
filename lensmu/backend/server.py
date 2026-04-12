@@ -50,7 +50,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from security import add_security_middleware, validate_image_size
+if __package__:
+    from .security import add_security_middleware, validate_image_size
+else:
+    from security import add_security_middleware, validate_image_size
 
 # ---------------------------------------------------------------------------
 # Import OCR engine wrappers with graceful fallback.
@@ -63,7 +66,10 @@ from security import add_security_middleware, validate_image_size
 # ---------------------------------------------------------------------------
 
 try:
-    from ocr_engines.paddle_ocr import PaddleOCREngine
+    if __package__:
+        from .ocr_engines.paddle_ocr import PaddleOCREngine
+    else:
+        from ocr_engines.paddle_ocr import PaddleOCREngine
     PADDLE_AVAILABLE = True
 except ImportError as e:
     PADDLE_AVAILABLE = False
@@ -75,7 +81,10 @@ except ImportError as e:
     )
 
 try:
-    from ocr_engines.manga_ocr import MangaOCREngine
+    if __package__:
+        from .ocr_engines.manga_ocr import MangaOCREngine
+    else:
+        from ocr_engines.manga_ocr import MangaOCREngine
     MANGA_AVAILABLE = True
 except ImportError as e:
     MANGA_AVAILABLE = False

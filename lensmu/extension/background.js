@@ -615,9 +615,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
        * We route it to the configured OCR engine.
        */
       case 'OCR_REQUEST': {
-        const settings = await getSettings();
+        const storedSettings = await getSettings();
+        const settings = {
+          ...storedSettings,
+          ...(payload?.settings && typeof payload.settings === 'object'
+            ? payload.settings
+            : {})
+        };
         const engine = normalizeOcrEngine(settings.ocrEngine);
         const backendUrl = settings.backendUrl || 'http://localhost:8000';
+        const rawImage = stripDataUrlPrefix(payload.imageBase64);
 
         try {
           let ocrResult;
@@ -631,7 +638,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const response = await proxyFetch(`${backendUrl}/ocr/paddle`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: payload.imageBase64 })
+              body: JSON.stringify({ image: rawImage })
             });
 
             if (!response.ok) {
@@ -658,7 +665,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const detectResponse = await proxyFetch(`${backendUrl}/ocr/paddle`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: payload.imageBase64 })
+              body: JSON.stringify({ image: rawImage })
             });
 
             if (!detectResponse.ok) {
@@ -666,32 +673,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               break;
             }
 
-            const bboxes = (detectResponse.body.detections || []).map(d => d.bbox);
+            const paddleDetections = detectResponse.body.detections || [];
+            const bboxes = paddleDetections.map(d => d.bbox);
+            const mangaBboxes = bboxes.length > 0 ? bboxes : [[0, 0, 1000000, 1000000]];
 
-            if (bboxes.length === 0) {
-              ocrResult = { blocks: [], source_lang: 'ja' };
-            } else {
-              const mangaResponse = await proxyFetch(`${backendUrl}/ocr/manga`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: payload.imageBase64, bboxes })
-              });
+            const mangaResponse = await proxyFetch(`${backendUrl}/ocr/manga`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: rawImage, bboxes: mangaBboxes })
+            });
 
-              if (!mangaResponse.ok) {
-                sendResponse(mangaResponse);
-                break;
-              }
-
-              ocrResult = {
-                blocks: (mangaResponse.body.detections || []).map(d => ({
-                  text: d.text,
-                  confidence: 0.9,
-                  bbox: { x: d.bbox[0], y: d.bbox[1], width: d.bbox[2] - d.bbox[0], height: d.bbox[3] - d.bbox[1] },
-                  orientation: 'vertical'
-                })),
-                source_lang: 'ja'
-              };
+            if (!mangaResponse.ok) {
+              sendResponse(mangaResponse);
+              break;
             }
+
+            const mangaBlocks = (mangaResponse.body.detections || [])
+              .map(d => ({
+                text: typeof d.text === 'string' ? d.text : String(d.text || ''),
+                confidence: Number(d.confidence) || 0.9,
+                bbox: {
+                  x: d.bbox[0],
+                  y: d.bbox[1],
+                  width: d.bbox[2] - d.bbox[0],
+                  height: d.bbox[3] - d.bbox[1]
+                },
+                orientation: d.orientation || 'vertical'
+              }))
+              .filter(block => block.text.trim().length > 0);
+
+            const fallbackBlocks = paddleDetections
+              .map(d => ({
+                text: typeof d.text === 'string' ? d.text : String(d.text || ''),
+                confidence: Number(d.confidence) || 0,
+                bbox: {
+                  x: d.bbox[0],
+                  y: d.bbox[1],
+                  width: d.bbox[2] - d.bbox[0],
+                  height: d.bbox[3] - d.bbox[1]
+                },
+                orientation: d.orientation || 'horizontal'
+              }))
+              .filter(block => block.text.trim().length > 0);
+
+            ocrResult = {
+              blocks: mangaBlocks.length > 0 ? mangaBlocks : fallbackBlocks,
+              source_lang: 'ja'
+            };
 
           } else if (engine === 'google_vision') {
             /*
@@ -714,7 +742,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   requests: [{
-                    image: { content: stripDataUrlPrefix(payload.imageBase64) },
+                    image: { content: rawImage },
                     features: [{ type: 'TEXT_DETECTION' }]
                   }]
                 })
@@ -830,7 +858,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
          * does NOT go through the Python backend — the APIs are called
          * directly from the extension's service worker context.
          */
-        const settings = await getSettings();
+        const storedSettings = await getSettings();
+        const settings = {
+          ...storedSettings,
+          ...(payload?.settings && typeof payload.settings === 'object'
+            ? payload.settings
+            : {})
+        };
         const sourceLang = payload.sourceLang || 'auto';
         const targetLang = payload.targetLang || settings.targetLanguage || 'en';
 

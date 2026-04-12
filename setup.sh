@@ -27,26 +27,26 @@ BACKEND_DIR="$SCRIPT_DIR/lensmu/backend"
 EXTENSION_DIR="$SCRIPT_DIR/lensmu/extension"
 
 # ---------------------------------------------------------------------------
-# Step 1: Find Python 3.12 or newer (3.13, 3.14, ...)
+# Step 1: Find a Python version supported by PaddleOCR and MangaOCR
 # ---------------------------------------------------------------------------
-echo "[1/5] Checking for Python 3.12+..."
+echo "[1/5] Checking for Python 3.8-3.12..."
 
-PYTHON312=""
-for cmd in python3.14 python3.13 python3.12 python3; do
+BACKEND_PYTHON=""
+for cmd in python3.12 python3.11 python3.10 python3.9 python3.8 python3; do
     if command -v "$cmd" &>/dev/null; then
         version=$($cmd --version 2>&1)
-        # Accept any Python 3.12 or newer
+        # PaddleOCR and manga-ocr currently support Python 3.8 through 3.12.
         minor=$(echo "$version" | sed -E 's/Python 3\.([0-9]+).*/\1/')
-        if [[ "$minor" =~ ^[0-9]+$ ]] && [ "$minor" -ge 12 ]; then
-            PYTHON312="$cmd"
+        if [[ "$minor" =~ ^[0-9]+$ ]] && [ "$minor" -ge 8 ] && [ "$minor" -le 12 ]; then
+            BACKEND_PYTHON="$cmd"
             echo "  Found: $version"
             break
         fi
     fi
 done
 
-if [ -z "$PYTHON312" ]; then
-    echo "  Python 3.12+ not found."
+if [ -z "$BACKEND_PYTHON" ]; then
+    echo "  No supported Python version found."
     echo ""
     echo "  Install it:"
     echo "    macOS:  brew install python@3.12"
@@ -63,8 +63,8 @@ echo ""
 echo "[2/5] Setting up backend virtual environment..."
 
 if [ ! -d "$BACKEND_DIR/venv" ]; then
-    echo "  Creating venv with Python 3.12..."
-    $PYTHON312 -m venv "$BACKEND_DIR/venv"
+    echo "  Creating venv with $BACKEND_PYTHON..."
+    $BACKEND_PYTHON -m venv "$BACKEND_DIR/venv"
     echo "  Virtual environment created."
 else
     echo "  Virtual environment already exists. Skipping."

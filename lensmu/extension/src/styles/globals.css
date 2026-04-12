@@ -358,6 +358,10 @@ select {
   color: var(--color-text-muted);
 }
 
+.status-chip--unavailable {
+  color: var(--color-error);
+}
+
 .toggle-row {
   display: flex;
   align-items: flex-start;

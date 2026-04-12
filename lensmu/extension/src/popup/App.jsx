@@ -268,7 +268,19 @@ export default function App() {
         window.clearTimeout(timeoutId);
 
         if (!cancelled) {
-          setServerStatus(response.ok ? "online" : "offline");
+          if (!response.ok) {
+            setServerStatus("offline");
+            return;
+          }
+
+          const health = await response.json().catch(() => null);
+          const selectedServerEngine = settings.ocrEngine;
+          const selectedEngineAvailable =
+            selectedServerEngine === "paddleocr"
+              ? health?.paddle_ocr_available
+              : health?.manga_ocr_available;
+
+          setServerStatus(selectedEngineAvailable ? "online" : "unavailable");
         }
       } catch {
         if (!cancelled) {
@@ -311,6 +323,10 @@ export default function App() {
     offline: "Backend offline",
     checking: "Checking backend",
     idle: "Local engine selected",
+    unavailable:
+      settings.ocrEngine === "mangaocr"
+        ? "MangaOCR unavailable"
+        : "PaddleOCR unavailable",
   };
 
   const pageStatusDescription = tabUnavailable

@@ -34,12 +34,19 @@
 # =============================================================================
 
 import io
+import inspect
 import logging
+import os
 import threading
 from typing import Optional
 
 import numpy as np
 from PIL import Image
+
+# PaddleOCR 3.x performs a model-source connectivity check during import.
+# Skip that in the local backend so initialization does not stall on startup.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
 from paddleocr import PaddleOCR
 
 logger = logging.getLogger(__name__)
@@ -92,13 +99,8 @@ class PaddleOCREngine:
           - show_log=False     : Suppress PaddleOCR's verbose startup logs.
         """
         logger.info("Initializing PaddleOCR engine (this may take a few seconds)...")
-        self._ocr = PaddleOCR(
-            use_angle_cls=True,       # detect text orientation (0 vs 180 degrees)
-            lang="japan",             # Japanese recognition model
-            use_gpu=False,            # CPU mode (change to True for GPU)
-            det_db_thresh=0.3,        # detection confidence threshold
-            det_db_unclip_ratio=1.8,  # expand detected regions slightly
-        )
+        paddle_kwargs = self._build_constructor_kwargs()
+        self._ocr = PaddleOCR(**paddle_kwargs)
         logger.info("PaddleOCR engine initialized successfully.")
 
     @classmethod
@@ -164,44 +166,18 @@ class PaddleOCREngine:
         # where the 4 points are the corners of a quadrilateral (polygon)
         # bounding the detected text. The points are in order:
         #   top-left, top-right, bottom-right, bottom-left.
-        result = self._ocr.ocr(image_array, cls=True)
+        if hasattr(self._ocr, "predict"):
+            result = self._ocr.predict(image_array)
+        else:
+            # PaddleOCR 2.x compatibility path.
+            result = self._ocr.ocr(image_array, cls=True)
 
         # --- Step 3: Handle empty results -------------------------------------
-        # PaddleOCR returns [None] or [[]] when no text is detected.
         if result is None or len(result) == 0:
             return []
 
-        page_result = result[0]  # first (and only) page
-        if page_result is None or len(page_result) == 0:
-            return []
-
         # --- Step 4: Transform raw results into our API format ----------------
-        detections = []
-        for detection in page_result:
-            # Unpack the PaddleOCR detection tuple.
-            polygon = detection[0]     # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-            text_info = detection[1]   # ("recognized text", confidence_float)
-
-            text = text_info[0]
-            confidence = float(text_info[1])
-
-            # Convert the 4-corner polygon to a simple axis-aligned bounding
-            # box: [x_min, y_min, x_max, y_max].
-            # This is easier for the browser extension to use when positioning
-            # overlay elements on the page.
-            bbox = self._polygon_to_bbox(polygon)
-
-            # Determine whether the text is horizontal or vertical.
-            # This is useful for the extension to know how to render the
-            # translated text overlay (vertical text needs different CSS).
-            orientation = self._detect_orientation(polygon)
-
-            detections.append({
-                "text": text,
-                "bbox": bbox,
-                "confidence": round(confidence, 4),
-                "orientation": orientation,
-            })
+        detections = self._normalize_detections(result)
 
         # --- Step 5: Sort by reading order ------------------------------------
         # Sort by vertical position first (top to bottom), then by horizontal
@@ -211,6 +187,186 @@ class PaddleOCREngine:
         detections.sort(key=lambda d: (d["bbox"][1], d["bbox"][0]))
 
         return detections
+
+    @staticmethod
+    def _build_constructor_kwargs() -> dict:
+        """
+        Build a PaddleOCR constructor kwargs dict that works across both
+        PaddleOCR 2.x and 3.x.
+
+        PaddleOCR 3.x renamed several arguments:
+          - use_angle_cls        -> use_textline_orientation
+          - det_db_thresh        -> text_det_thresh
+          - det_db_unclip_ratio  -> text_det_unclip_ratio
+
+        It also dropped `use_gpu` from the high-level pipeline constructor.
+        """
+        signature = inspect.signature(PaddleOCR.__init__)
+        supported = signature.parameters
+        kwargs: dict = {}
+
+        if "lang" in supported:
+            kwargs["lang"] = "japan"
+
+        if "use_textline_orientation" in supported:
+            kwargs["use_textline_orientation"] = True
+        elif "use_angle_cls" in supported:
+            kwargs["use_angle_cls"] = True
+
+        if "text_det_thresh" in supported:
+            kwargs["text_det_thresh"] = 0.3
+        elif "det_db_thresh" in supported:
+            kwargs["det_db_thresh"] = 0.3
+
+        if "text_det_unclip_ratio" in supported:
+            kwargs["text_det_unclip_ratio"] = 1.8
+        elif "det_db_unclip_ratio" in supported:
+            kwargs["det_db_unclip_ratio"] = 1.8
+
+        if "use_gpu" in supported:
+            kwargs["use_gpu"] = False
+
+        return kwargs
+
+    @classmethod
+    def _normalize_detections(cls, result: list) -> list[dict]:
+        """
+        Normalize PaddleOCR results from either the old 2.x tuple format or
+        the newer 3.x pipeline result objects into the backend API format.
+        """
+        if cls._looks_like_legacy_ocr_result(result):
+            page_result = result[0]
+            return cls._normalize_legacy_page(page_result)
+
+        detections: list[dict] = []
+        for page_result in result:
+            detections.extend(cls._normalize_modern_page(page_result))
+        return detections
+
+    @staticmethod
+    def _looks_like_legacy_ocr_result(result: list) -> bool:
+        if not isinstance(result, list) or not result:
+            return False
+        first_page = result[0]
+        if not isinstance(first_page, list) or not first_page:
+            return False
+        first_detection = first_page[0]
+        return (
+            isinstance(first_detection, (list, tuple))
+            and len(first_detection) >= 2
+            and isinstance(first_detection[0], (list, tuple))
+        )
+
+    @classmethod
+    def _normalize_legacy_page(cls, page_result: list) -> list[dict]:
+        detections = []
+        for detection in page_result or []:
+            polygon = detection[0]
+            text_info = detection[1]
+            text = text_info[0]
+            confidence = float(text_info[1])
+            bbox = cls._polygon_to_bbox(polygon)
+            orientation = cls._detect_orientation(polygon)
+
+            detections.append({
+                "text": text,
+                "bbox": bbox,
+                "confidence": round(confidence, 4),
+                "orientation": orientation,
+            })
+
+        return detections
+
+    @classmethod
+    def _normalize_modern_page(cls, page_result) -> list[dict]:
+        payload = cls._coerce_result_payload(page_result)
+        if not isinstance(payload, dict):
+            return []
+
+        texts = cls._to_plain_list(payload.get("rec_texts", []))
+        scores = cls._to_plain_list(payload.get("rec_scores", []))
+        boxes = cls._to_plain_list(payload.get("rec_boxes", []))
+        polys = cls._to_plain_list(payload.get("rec_polys", payload.get("dt_polys", [])))
+
+        detections = []
+        for index, text in enumerate(texts):
+            normalized_text = str(text or "").strip()
+            if not normalized_text:
+                continue
+
+            confidence = float(scores[index]) if index < len(scores) else 0.0
+            polygon = polys[index] if index < len(polys) else None
+            bbox_source = boxes[index] if index < len(boxes) else polygon
+            bbox = cls._normalize_box(bbox_source)
+
+            if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                continue
+
+            orientation = (
+                cls._detect_orientation(polygon)
+                if polygon is not None
+                else cls._detect_orientation(cls._bbox_to_polygon(bbox))
+            )
+
+            detections.append({
+                "text": normalized_text,
+                "bbox": bbox,
+                "confidence": round(confidence, 4),
+                "orientation": orientation,
+            })
+
+        return detections
+
+    @staticmethod
+    def _coerce_result_payload(page_result) -> dict | None:
+        if isinstance(page_result, dict):
+            if isinstance(page_result.get("res"), dict):
+                return page_result["res"]
+            return page_result
+
+        result_payload = getattr(page_result, "res", None)
+        if isinstance(result_payload, dict):
+            return result_payload
+
+        to_dict = getattr(page_result, "to_dict", None)
+        if callable(to_dict):
+            serialized = to_dict()
+            if isinstance(serialized, dict):
+                if isinstance(serialized.get("res"), dict):
+                    return serialized["res"]
+                return serialized
+
+        return None
+
+    @staticmethod
+    def _to_plain_list(value):
+        if value is None:
+            return []
+        if hasattr(value, "tolist"):
+            value = value.tolist()
+        return list(value)
+
+    @classmethod
+    def _normalize_box(cls, box) -> list[int]:
+        if box is None:
+            return [0, 0, 0, 0]
+
+        if hasattr(box, "tolist"):
+            box = box.tolist()
+
+        if isinstance(box, (list, tuple)) and len(box) == 4 and not isinstance(box[0], (list, tuple)):
+            return [int(round(float(point))) for point in box]
+
+        return cls._polygon_to_bbox(box)
+
+    @staticmethod
+    def _bbox_to_polygon(bbox: list[int]) -> list[list[int]]:
+        return [
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[1]],
+            [bbox[2], bbox[3]],
+            [bbox[0], bbox[3]],
+        ]
 
     @staticmethod
     def _polygon_to_bbox(polygon: list[list[float]]) -> list[int]:

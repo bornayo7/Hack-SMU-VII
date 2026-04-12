@@ -6,6 +6,9 @@ node_modules/
 __pycache__/
 *.pyc
 venv/
+.venv/
+venv*/
+env/
 .env
 
 # Build output (rebuilt with npm run build)

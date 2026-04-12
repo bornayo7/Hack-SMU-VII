@@ -196,11 +196,12 @@ class MangaOCREngine:
             y1 = max(0, min(y1, image_height))
             x2 = max(0, min(x2, image_width))
             y2 = max(0, min(y2, image_height))
+            clamped_bbox = [x1, y1, x2, y2]
 
             # Skip degenerate bounding boxes (zero width or height).
             if x2 <= x1 or y2 <= y1:
                 logger.warning(f"Skipping degenerate bbox: {bbox}")
-                results.append({"text": "", "bbox": bbox})
+                results.append({"text": "", "bbox": clamped_bbox})
                 continue
 
             # --- Step 3: Crop the region and run MangaOCR ---------------------
@@ -218,11 +219,13 @@ class MangaOCREngine:
 
                 results.append({
                     "text": text,
-                    "bbox": bbox,  # return the ORIGINAL bbox, not the clamped one
+                    # Return the clamped bbox so the browser overlay always
+                    # stays within the actual image boundaries.
+                    "bbox": clamped_bbox,
                 })
             except Exception as e:
                 logger.error(f"Failed to process region {bbox}: {e}")
-                results.append({"text": "", "bbox": bbox})
+                results.append({"text": "", "bbox": clamped_bbox})
 
         return results
 

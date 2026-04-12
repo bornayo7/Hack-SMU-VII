@@ -825,7 +825,8 @@ async function processImage(imageInfo, options = { prefetch: false }) {
       action: 'OCR_REQUEST',
       payload: {
         imageBase64,
-        sourceLang: currentSettings.sourceLanguage || 'auto'
+        sourceLang: currentSettings.sourceLanguage || 'auto',
+        settings: currentSettings
       }
     });
 
@@ -906,7 +907,8 @@ async function processImage(imageInfo, options = { prefetch: false }) {
       payload: {
         texts: textsToTranslate,
         sourceLang: ocrResponse.body?.source_lang || 'auto',
-        targetLang: currentSettings.targetLanguage || 'en'
+        targetLang: currentSettings.targetLanguage || 'en',
+        settings: currentSettings
       }
     });
 
