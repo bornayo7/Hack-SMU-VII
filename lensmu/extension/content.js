@@ -146,11 +146,9 @@ const translateIcons = new Set();
  * --------------------------------------------------------------------------
  * OCR Compatibility Helpers
  * --------------------------------------------------------------------------
- * OCR now runs in the background worker by default. We keep a compatibility
- * fallback here for stale service workers that still respond with the older
- * `useClientOCR` flag. Unlike the legacy implementation, this uses the
- * extension-bundled Tesseract module rather than injecting a blocked CDN
- * script into the page context.
+ * Server-backed OCR still runs through the background worker. Tesseract.js
+ * must run in the content script because the MV3 service worker does not
+ * expose the Worker constructor that Tesseract needs.
  */
 function stripDataUrlPrefix(imageBase64) {
   if (!imageBase64 || !imageBase64.startsWith('data:')) {
@@ -161,11 +159,14 @@ function stripDataUrlPrefix(imageBase64) {
   return commaIndex === -1 ? imageBase64 : imageBase64.slice(commaIndex + 1);
 }
 
-async function runBundledTesseractOCR(imageBase64) {
+async function runBundledTesseractOCR(
+  imageBase64,
+  sourceLanguage = currentSettings.sourceLanguage || 'auto'
+) {
   const { recognize } = await import(chrome.runtime.getURL('ocr/tesseract.js'));
   const results = await recognize(
     stripDataUrlPrefix(imageBase64),
-    currentSettings.sourceLanguage || 'auto'
+    sourceLanguage
   );
 
   return results.map((block) => ({
@@ -747,14 +748,14 @@ async function processImage(imageInfo) {
 
     /*
      * If the background script tells us to use client-side OCR (Tesseract.js),
-     * we run it right here in the content script. Tesseract.js is loaded
-     * from the extension bundle and runs entirely in the browser via WASM.
+     * run it here in the content script where the Worker constructor exists.
      */
     let ocrResults = ocrResponse.body?.blocks || [];
     if (ocrResponse.body?.useClientOCR) {
-      console.warn('[VisionTranslate] Received deprecated client-side OCR response, using bundled compatibility path.');
+      const sourceLang = ocrResponse.body?.source_lang || currentSettings.sourceLanguage || 'auto';
+      console.log('[VisionTranslate] Running bundled Tesseract OCR in content script.');
       try {
-        ocrResults = await runBundledTesseractOCR(imageBase64);
+        ocrResults = await runBundledTesseractOCR(imageBase64, sourceLang);
       } catch (tessError) {
         console.warn('[VisionTranslate] Bundled Tesseract.js OCR failed:', tessError.message);
         return;
@@ -1411,8 +1412,18 @@ function createToolbar() {
     toolbarContainer = null;
   });
 
-  /* Add to page */
-  img.parentElement.appendChild(toolbarContainer);
+  /*
+   * Add to the page root. The toolbar is fixed-position UI, not tied to any
+   * one image element, so mounting it on the document avoids scope issues and
+   * keeps it stable across different page layouts.
+   */
+  const mountTarget = document.body || document.documentElement;
+  if (!mountTarget) {
+    console.warn('[VisionTranslate] Could not find a document root for the toolbar');
+    return;
+  }
+
+  mountTarget.appendChild(toolbarContainer);
 
   console.log('[VisionTranslate] Toolbar created');
 }

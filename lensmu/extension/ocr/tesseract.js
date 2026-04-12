@@ -56,16 +56,20 @@
  *   - The background service worker (recommended: doesn't block page rendering)
  *   - A content script (not recommended: might conflict with the page's own scripts)
  *
- * We load Tesseract.js using importScripts() in the service worker, or via
- * dynamic import if using ES modules.
+ * In this MV3 extension, the background service worker is an ES module.
+ * ServiceWorkerGlobalScope does NOT allow runtime import(), so we import the
+ * bundled Tesseract API statically and still lazily create the OCR worker the
+ * first time recognize() is called.
  *
  * =============================================================================
  */
 
+import bundledTesseract from '../lib/tesseract.esm.min.js';
+
 // ---------------------------------------------------------------------------
-// We use a lazy-loading pattern here. Instead of importing Tesseract at the
-// top of the file (which would slow down extension startup), we load it the
-// first time someone actually calls recognize().
+// We lazy-initialize the expensive OCR worker itself. The lightweight
+// Tesseract API bundle is imported statically because MV3 service workers do
+// not allow runtime import() from ServiceWorkerGlobalScope.
 //
 // The `worker` variable holds the Tesseract.js worker instance. A "worker"
 // in Tesseract.js terms is an object that manages the Web Worker thread and
@@ -274,13 +278,10 @@ async function ensureWorkerReady(language) {
 
 
 /**
- * loadTesseractLibrary — Dynamically loads the Tesseract.js library.
+ * loadTesseractLibrary — Returns the bundled Tesseract.js API object.
  *
- * We use dynamic loading because:
- *   1. The Tesseract library is large (~800 KB minified) and we don't want
- *      to slow down extension startup by loading it eagerly.
- *   2. Not every user will use Tesseract (they might prefer Cloud Vision
- *      or PaddleOCR), so loading it on-demand saves memory.
+ * MV3 service workers cannot call runtime import(), so we keep the API layer
+ * as a static import and only defer the expensive createWorker() call.
  *
  * @returns {Promise<object>} The Tesseract.js library object
  */
@@ -291,33 +292,14 @@ async function loadTesseractLibrary() {
     return globalThis.Tesseract;
   }
 
-  // Load the bundled ESM version from the extension's /lib directory.
-  // chrome.runtime.getURL() converts a relative extension path to the full
-  // chrome-extension:// URL that can be imported as an ES module.
-  //
-  // IMPORTANT: We use the ESM build (tesseract.esm.min.js), NOT the UMD build
-  // (tesseract.min.js). Dynamic import() only works with ES modules.
-  //
-  // NOTE: CDN loading is NOT possible in browser extensions because the
-  // Content Security Policy (script-src 'self') blocks external scripts.
-  // The Tesseract.js files MUST be bundled with the extension in /lib/.
-  try {
-    const bundledModule = await import(
-      /* webpackIgnore: true */
-      chrome.runtime.getURL('lib/tesseract.esm.min.js')
-    );
-    if (bundledModule.default) return bundledModule.default;
-    if (bundledModule.createWorker) return bundledModule;
-    return bundledModule;
-  } catch (bundleError) {
-    console.error('[Tesseract] Failed to load bundled library:', bundleError);
-    throw new Error(
-      'Could not load Tesseract.js library from extension bundle. ' +
-      'Make sure the /lib directory contains tesseract.esm.min.js and related files. ' +
-      'Run "npm run copy-tesseract" to copy them from node_modules. ' +
-      `Details: ${bundleError.message}`
-    );
+  if (bundledTesseract?.createWorker) {
+    return bundledTesseract;
   }
+
+  throw new Error(
+    'Could not load the bundled Tesseract.js library. ' +
+    'Make sure the extension package still includes /lib/tesseract.esm.min.js, worker.min.js, and the tesseract-core*.wasm(.js) files.'
+  );
 }
 
 

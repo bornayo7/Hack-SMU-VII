@@ -618,7 +618,13 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    * empty/transparent.
    */
   const samplingCanvas = document.createElement('canvas');
-  const samplingCtx = samplingCanvas.getContext('2d');
+  /*
+   * This canvas is read from repeatedly via getImageData() when sampling
+   * background colors, so request the readback-optimized 2D context.
+   */
+  const samplingCtx = samplingCanvas.getContext('2d', {
+    willReadFrequently: true
+  });
   samplingCanvas.width = displayWidth;
   samplingCanvas.height = displayHeight;
   samplingCtx.drawImage(originalImage, 0, 0, displayWidth, displayHeight);

@@ -62,7 +62,6 @@
  */
 import { getSettings, saveSettings } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
-import { performOCR } from './ocr/ocr-manager.js';
 
 /*
  * --------------------------------------------------------------------------
@@ -101,6 +100,62 @@ function getTabState(tabId) {
     });
   }
   return tabStates.get(tabId);
+}
+
+/*
+ * --------------------------------------------------------------------------
+ * OCR Helpers
+ * --------------------------------------------------------------------------
+ * The popup and older stored settings use a few different engine/API-key
+ * identifiers. Normalize them here so the background worker stays backward
+ * compatible and the OCR_REQUEST handler only needs one set of branches.
+ */
+function normalizeOcrEngine(engine) {
+  switch (engine) {
+    case 'paddle':
+    case 'paddleocr':
+      return 'paddleocr';
+    case 'manga':
+    case 'mangaocr':
+      return 'mangaocr';
+    case 'cloudvision':
+    case 'cloud-vision':
+    case 'google_vision':
+      return 'google_vision';
+    case 'tesseract':
+    default:
+      return 'tesseract';
+  }
+}
+
+function stripDataUrlPrefix(imageBase64) {
+  if (!imageBase64 || !imageBase64.startsWith('data:')) {
+    return imageBase64;
+  }
+
+  const commaIndex = imageBase64.indexOf(',');
+  return commaIndex === -1 ? imageBase64 : imageBase64.slice(commaIndex + 1);
+}
+
+function toContentScriptBlocks(blocks = []) {
+  return blocks
+    .map((block) => {
+      const bbox = Array.isArray(block?.bbox) ? block.bbox : [0, 0, 0, 0];
+      const [x1, y1, x2, y2] = bbox.map((value) => Math.round(Number(value) || 0));
+
+      return {
+        text: typeof block?.text === 'string' ? block.text : String(block?.text || ''),
+        confidence: Number(block?.confidence) || 0,
+        bbox: {
+          x: x1,
+          y: y1,
+          width: Math.max(0, x2 - x1),
+          height: Math.max(0, y2 - y1)
+        },
+        orientation: block?.orientation === 'vertical' ? 'vertical' : 'horizontal'
+      };
+    })
+    .filter((block) => block.text.trim().length > 0);
 }
 
 /*
@@ -454,11 +509,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       /*
        * ---- OCR_REQUEST ----
        * Sent by the content script with a base64-encoded image.
-       * We forward it to our local OCR backend server.
+       * We route it to the configured OCR engine.
        */
       case 'OCR_REQUEST': {
         const settings = await getSettings();
-        const engine = settings.ocrEngine || 'tesseract';
+        const engine = normalizeOcrEngine(settings.ocrEngine);
         const backendUrl = settings.backendUrl || 'http://localhost:8000';
 
         try {
@@ -535,11 +590,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               };
             }
 
-          } else if (engine === 'cloudvision') {
+          } else if (engine === 'google_vision') {
             /*
              * Google Cloud Vision: call the API directly from the service worker.
              */
-            const apiKey = settings.googleVisionApiKey;
+            const apiKey =
+              settings.googleCloudApiKey ||
+              settings.googleVisionApiKey ||
+              settings.cloudVisionApiKey;
             if (!apiKey) {
               sendResponse({ ok: false, body: { error: 'Google Cloud Vision requires an API key. Set it in extension settings.' } });
               break;
@@ -552,7 +610,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   requests: [{
-                    image: { content: payload.imageBase64 },
+                    image: { content: stripDataUrlPrefix(payload.imageBase64) },
                     features: [{ type: 'TEXT_DETECTION' }]
                   }]
                 })
@@ -590,16 +648,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           } else {
             /*
-             * Tesseract.js (default): must run in the CONTENT SCRIPT, not here.
-             * Service workers cannot use import() or WebAssembly the way
-             * Tesseract.js needs. We send a signal back to the content script
-             * telling it to handle OCR client-side.
+             * Tesseract.js needs the DOM-side Worker constructor, which is not
+             * available in the MV3 service worker. Tell the content script to
+             * run bundled Tesseract locally and keep the rest of the OCR flow
+             * unchanged.
              */
-            sendResponse({
-              ok: true,
-              body: { useClientOCR: true, engine: 'tesseract' }
-            });
-            break;
+            const sourceLang = payload.sourceLang || settings.sourceLanguage || 'auto';
+            ocrResult = {
+              blocks: [],
+              source_lang: sourceLang,
+              useClientOCR: true
+            };
           }
 
           sendResponse({ ok: true, body: ocrResult });
