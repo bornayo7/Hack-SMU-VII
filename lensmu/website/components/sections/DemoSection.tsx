@@ -1,5 +1,4 @@
-import { ArrowRight, Play, ScanText, Video } from "lucide-react";
-import Image from "next/image";
+import { ArrowRight, ScanText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { RevealOnScroll } from "@/components/ui/reveal-on-scroll";
@@ -50,33 +49,13 @@ export function DemoSection() {
             </div>
 
             <div className="relative aspect-video">
-              <Image
-                src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1600&q=80"
-                alt="VisionTranslate product tour video placeholder"
-                fill
-                sizes="(min-width: 1024px) 1152px, 100vw"
-                className="object-cover opacity-90 transition duration-700 group-hover:scale-105"
+              <iframe
+                src="https://www.youtube.com/embed/JS8v538aw2c"
+                title="VisionTranslate product tour"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="absolute inset-0 h-full w-full border-0 rounded-b-xl"
               />
-              <div className="absolute inset-0 bg-background/20 transition duration-700 group-hover:bg-background/10" />
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                <a
-                  href="/contact"
-                  className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-glow transition duration-300 hover:scale-110"
-                  aria-label="Watch product tour"
-                >
-                  <Play className="h-7 w-7 ml-1" />
-                </a>
-                <div className="max-w-lg rounded-xl border border-border/50 bg-background/80 px-5 py-4 backdrop-blur-md shadow-sm">
-                  <p className="flex items-center justify-center gap-2 text-sm font-semibold text-foreground">
-                    <Video className="h-4 w-4 text-primary" />
-                    Product tour video placeholder
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                    Drop in the final YouTube, Vimeo, or local showcase video to
-                    display the full experience.
-                  </p>
-                </div>
-              </div>
             </div>
 
             <div className="grid gap-4 border-t border-border/50 bg-muted/20 p-5 md:grid-cols-[1fr_auto] md:items-center">
