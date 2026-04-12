@@ -582,6 +582,11 @@ function shouldRenderVertical(text, boxWidth, boxHeight) {
  */
 export function renderTranslation(canvas, originalImage, ocrResults, translations) {
   const ctx = canvas.getContext('2d');
+  
+  ctx.save();
+  ctx.resetTransform();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
 
   /*
    * Calculate scale factors. OCR bounding boxes are in the image's
@@ -599,11 +604,6 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    */
   const naturalWidth = originalImage.naturalWidth || originalImage.width;
   const naturalHeight = originalImage.naturalHeight || originalImage.height;
-
-  /*
-   * canvas.style.width gives us the CSS display width (e.g., "500px").
-   * We parse it to get the number.
-   */
   const displayWidth = parseFloat(canvas.style.width);
   const displayHeight = parseFloat(canvas.style.height);
 
@@ -621,20 +621,18 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
   samplingCanvas.width = displayWidth;
   samplingCanvas.height = displayHeight;
   samplingCtx.drawImage(originalImage, 0, 0, displayWidth, displayHeight);
-
   /*
    * Font family to use for rendered text. We use a system font stack
    * that covers most languages well. For CJK text, browsers will
    * automatically fall back to appropriate fonts (like Noto Sans CJK
    * or system CJK fonts).
    */
-  const fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", "Noto Sans CJK SC", sans-serif';
-
+  const fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif';
   /*
    * Clear the overlay canvas before drawing. This removes any previous
    * rendering (important if we're re-rendering after a language change).
    */
-  ctx.clearRect(0, 0, displayWidth, displayHeight);
+  
 
   /*
    * Process each text block (OCR result + its translation).
@@ -726,7 +724,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
          * Center the column vertically within the box.
          */
         const totalColumnHeight = column.length * charHeight;
-        const startY = box.y + (box.height - totalColumnHeight) / 2;
+        const startY = box.y + (box.height - (totalColumnHeight * dpr)) / (2*dpr);
 
         for (let charIdx = 0; charIdx < column.length; charIdx++) {
           const char = column[charIdx];
@@ -762,16 +760,15 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       ctx.textAlign = 'center';
 
       for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-        const line = lines[lineIdx];
 
         /*
          * Horizontal centering: draw at the horizontal center of the box.
          * With textAlign = 'center', the text is centered on the X coord.
          */
-        const lineX = box.x + box.width / 2;
-        const lineY = startY + lineIdx * lineHeight;
+        const lineX = box.x + (box.width / 2);
+        const lineY = startY + (lineIdx * lineHeight);
 
-        ctx.fillText(line, lineX, lineY);
+        ctx.fillText(lines[lineIdx], lineX, lineY);
       }
 
       /* Reset textAlign for future operations */
