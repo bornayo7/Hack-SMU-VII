@@ -664,27 +664,38 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
     const bgColor = sampleBackgroundColor(samplingCtx, box.x, box.y, box.width, box.height);
 
     /*
-     * STEP 2: Fill a rectangle over the original text area with the
-     * sampled background color. This visually "erases" the original text.
+     * STEP 2: Fill a rounded rectangle over the original text area with
+     * the sampled background color at full opacity. This "erases" the
+     * original text cleanly.
      *
-     * We extend the rectangle slightly (2px on each side) to cover
-     * any anti-aliased edges of the original text.
+     * We extend the rectangle slightly (3px) to cover anti-aliased edges
+     * and use rounded corners to better match speech bubble shapes.
      */
-    const BLEED = 2; /* Extra pixels to cover anti-aliased text edges */
-    ctx.fillStyle = `rgba(${bgColor.r}, ${bgColor.g}, ${bgColor.b}, ${bgColor.a / 255})`;
-    ctx.fillRect(
-      box.x - BLEED,
-      box.y - BLEED,
-      box.width + BLEED * 2,
-      box.height + BLEED * 2
-    );
+    const BLEED = 3;
+    const fillX = box.x - BLEED;
+    const fillY = box.y - BLEED;
+    const fillW = box.width + BLEED * 2;
+    const fillH = box.height + BLEED * 2;
+    const cornerRadius = Math.min(6, fillW * 0.08, fillH * 0.08);
+
+    ctx.fillStyle = `rgb(${bgColor.r}, ${bgColor.g}, ${bgColor.b})`;
+    ctx.beginPath();
+    ctx.roundRect(fillX, fillY, fillW, fillH, cornerRadius);
+    ctx.fill();
 
     /*
      * STEP 3: Determine text rendering direction and auto-size the font.
+     * Apply internal padding so text doesn't touch the edges.
      */
-    const isVertical = shouldRenderVertical(translatedText, box.width, box.height);
+    const PADDING = Math.max(3, Math.min(box.width, box.height) * 0.08);
+    const innerWidth = box.width - PADDING * 2;
+    const innerHeight = box.height - PADDING * 2;
+
+    if (innerWidth < 5 || innerHeight < 5) continue;
+
+    const isVertical = shouldRenderVertical(translatedText, innerWidth, innerHeight);
     const { fontSize, lines } = autoSizeFont(
-      ctx, translatedText, box.width, box.height, fontFamily, isVertical
+      ctx, translatedText, innerWidth, innerHeight, fontFamily, isVertical
     );
 
     /*
@@ -692,98 +703,89 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * sampled background.
      */
     const textColor = getContrastColor(bgColor);
+    const outlineColor = textColor === '#000000' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
 
     /*
-     * STEP 5: Render the translated text.
+     * STEP 5: Render the translated text with a subtle outline for
+     * readability over complex backgrounds.
      */
     ctx.font = `${fontSize}px ${fontFamily}`;
-    ctx.fillStyle = textColor;
     ctx.textBaseline = 'top';
 
     if (isVertical) {
       /*
        * VERTICAL TEXT RENDERING:
        * Each "line" is a column of characters. Columns go right-to-left.
-       *
-       * Starting position: right side of the box (since columns go RTL).
-       * Each column is offset leftward by (fontSize * 1.2).
-       * Within each column, characters are spaced vertically by fontSize * 1.1.
        */
       const columnWidth = fontSize * 1.2;
       const charHeight = fontSize * 1.1;
 
       for (let colIdx = 0; colIdx < lines.length; colIdx++) {
         const column = lines[colIdx];
-        /*
-         * X position: start from the right side of the box and move left.
-         * colIdx 0 = rightmost column.
-         */
-        const colX = box.x + box.width - (colIdx + 1) * columnWidth;
-
-        /*
-         * Center the column vertically within the box.
-         */
+        const colX = box.x + PADDING + innerWidth - (colIdx + 1) * columnWidth;
         const totalColumnHeight = column.length * charHeight;
-        const startY = box.y + (box.height - (totalColumnHeight * dpr)) / (2*dpr);
+        const startY = box.y + PADDING + (innerHeight - totalColumnHeight) / 2;
 
         for (let charIdx = 0; charIdx < column.length; charIdx++) {
           const char = column[charIdx];
           const charY = startY + charIdx * charHeight;
-
-          /*
-           * Center each character horizontally within the column.
-           * measureText gives us the character width.
-           */
           const charMetrics = ctx.measureText(char);
           const charX = colX + (columnWidth - charMetrics.width) / 2;
 
+          /* Draw text outline for readability */
+          ctx.strokeStyle = outlineColor;
+          ctx.lineWidth = 2;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(char, charX, charY);
+
+          /* Draw the actual text */
+          ctx.fillStyle = textColor;
           ctx.fillText(char, charX, charY);
         }
       }
     } else {
       /*
        * HORIZONTAL TEXT RENDERING:
-       * Standard left-to-right, top-to-bottom rendering.
-       *
-       * We center the text block both horizontally and vertically
-       * within the bounding box.
+       * Standard left-to-right, top-to-bottom, centered in the padded area.
        */
       const lineHeight = fontSize * 1.3;
       const totalTextHeight = lines.length * lineHeight;
-
-      /*
-       * Vertical centering: start Y position so the text block
-       * is centered in the bounding box.
-       */
-      const startY = box.y + (box.height - totalTextHeight) / 2;
+      const startY = box.y + PADDING + (innerHeight - totalTextHeight) / 2;
 
       ctx.textAlign = 'center';
 
       for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const line = lines[lineIdx];
+        const lineX = box.x + PADDING + innerWidth / 2;
+        const lineY = startY + lineIdx * lineHeight;
 
-        /*
-         * Horizontal centering: draw at the horizontal center of the box.
-         * With textAlign = 'center', the text is centered on the X coord.
-         */
-        const lineX = box.x + (box.width / 2);
-        const lineY = startY + (lineIdx * lineHeight);
+        /* Draw text outline for readability */
+        ctx.strokeStyle = outlineColor;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(line, lineX, lineY);
 
-        ctx.fillText(lines[lineIdx], lineX, lineY);
+        /* Draw the actual text */
+        ctx.fillStyle = textColor;
+        ctx.fillText(line, lineX, lineY);
       }
 
-      /* Reset textAlign for future operations */
       ctx.textAlign = 'start';
     }
 
     /*
-     * STEP 6: Draw confidence border.
-     * A thin border around the bounding box colored by confidence level.
-     * This gives the user a visual indicator of OCR reliability.
+     * STEP 6: Subtle confidence indicator.
+     * Only show a thin bottom border (not a full rectangle) to keep
+     * the overlay clean while still signaling confidence.
      */
-    const borderColor = getConfidenceBorderColor(ocr.confidence);
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    if (ocr.confidence !== undefined && ocr.confidence < 0.7) {
+      ctx.strokeStyle = 'rgba(255, 193, 7, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(box.x, box.y + box.height);
+      ctx.lineTo(box.x + box.width, box.y + box.height);
+      ctx.stroke();
+    }
 
     /*
      * Store the scaled box coordinates as a data attribute on the canvas
