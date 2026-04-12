@@ -524,12 +524,24 @@ function createOverlay(imageElement) {
    */
   const wrapper = document.createElement('div');
   wrapper.className = `${CLASS_PREFIX}-wrapper`;
-  wrapper.style.cssText = `
-    position: relative;
-    display: inline-block;
-    width: ${displayWidth}px;
-    height: ${displayHeight}px;
-  `;
+
+  /*
+   * Detect standalone image pages (image opened in a new tab).
+   * Browsers center images with display:block + margin:auto. Preserve
+   * that centering on the wrapper instead of using inline-block.
+   *
+   * NOTE: getComputedStyle resolves 'auto' margins to pixel values,
+   * so we check document.contentType and the element's inline style.
+   */
+  const isImageDocument = document.contentType &&
+    document.contentType.startsWith('image/');
+  const hasInlineAutoMargin = imageElement.tagName === 'IMG' &&
+    /margin\s*:\s*auto/i.test(imageElement.style.cssText);
+  const isCentered = isImageDocument || hasInlineAutoMargin;
+
+  wrapper.style.cssText = isCentered
+    ? `position: relative; display: block; margin: auto; width: ${displayWidth}px; height: ${displayHeight}px;`
+    : `position: relative; display: inline-block; width: ${displayWidth}px; height: ${displayHeight}px;`;
 
   /*
    * Insert the wrapper where the image is, then move the image inside it.
@@ -928,10 +940,25 @@ function addTranslateIcons() {
       if (element.tagName === 'IMG') {
         const wrapper = document.createElement('div');
         wrapper.className = `${CLASS_PREFIX}-icon-wrapper`;
-        wrapper.style.cssText = `
-          position: relative;
-          display: inline-block;
-        `;
+
+        /*
+         * Detect standalone image pages (image opened in a new tab).
+         * Browsers center these with display:block + margin:auto. If we
+         * wrap with inline-block, the centering is lost. Preserve it by
+         * using display:block + width:fit-content + margin:auto.
+         *
+         * NOTE: getComputedStyle resolves 'auto' margins to pixel values,
+         * so we check document.contentType and the element's inline style.
+         */
+        const isImageDocument = document.contentType &&
+          document.contentType.startsWith('image/');
+        const hasInlineAutoMargin = /margin\s*:\s*auto/i.test(element.style.cssText);
+        const isCentered = isImageDocument || hasInlineAutoMargin;
+
+        wrapper.style.cssText = isCentered
+          ? `position: relative; display: block; width: fit-content; margin: auto;`
+          : `position: relative; display: inline-block;`;
+
         element.parentNode.insertBefore(wrapper, element);
         wrapper.appendChild(element);
         iconAnchor = wrapper;

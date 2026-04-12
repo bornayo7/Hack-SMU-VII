@@ -374,6 +374,40 @@ export async function removeApiKey(provider) {
  *
  * @returns {Promise<void>}
  */
+/*
+ * --------------------------------------------------------------------------
+ * Disabled Domains (Per-Site Blacklist)
+ * --------------------------------------------------------------------------
+ * The extension is ON by default for all websites. When the user manually
+ * disables it on a site, the domain is stored here so it stays off on
+ * future visits. Toggling it back on removes the domain from this list.
+ */
+const DISABLED_DOMAINS_KEY = 'vt_disabled_domains';
+
+export async function getDisabledDomains() {
+  try {
+    const result = await chrome.storage.local.get(DISABLED_DOMAINS_KEY);
+    return result[DISABLED_DOMAINS_KEY] || [];
+  } catch (error) {
+    console.error('[VisionTranslate] Error reading disabled domains:', error);
+    return [];
+  }
+}
+
+export async function addDisabledDomain(hostname) {
+  const domains = await getDisabledDomains();
+  if (!domains.includes(hostname)) {
+    domains.push(hostname);
+    await chrome.storage.local.set({ [DISABLED_DOMAINS_KEY]: domains });
+  }
+}
+
+export async function removeDisabledDomain(hostname) {
+  const domains = await getDisabledDomains();
+  const filtered = domains.filter(d => d !== hostname);
+  await chrome.storage.local.set({ [DISABLED_DOMAINS_KEY]: filtered });
+}
+
 export async function clearAllData() {
   try {
     await chrome.storage.local.clear();

@@ -60,7 +60,7 @@
  * we can use ES module imports. We import our storage helpers so the
  * background script can read/write settings.
  */
-import { getSettings, saveSettings } from './utils/storage.js';
+import { getSettings, saveSettings, getDisabledDomains, addDisabledDomain, removeDisabledDomain } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
 
 /*
@@ -156,6 +156,25 @@ function toContentScriptBlocks(blocks = []) {
       };
     })
     .filter((block) => block.text.trim().length > 0);
+}
+
+/*
+ * --------------------------------------------------------------------------
+ * Helper: Extract Hostname from URL
+ * --------------------------------------------------------------------------
+ * Returns the hostname (e.g., "example.com") from a URL string, or null
+ * for special pages (chrome://, about:, etc.) where content scripts can't run.
+ */
+function getHostname(url) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname || parsed.protocol === 'chrome:' || parsed.protocol === 'chrome-extension:' || parsed.protocol === 'about:') {
+      return null;
+    }
+    return parsed.hostname;
+  } catch {
+    return null;
+  }
 }
 
 /*
@@ -416,7 +435,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
  *
  * changeInfo.status === 'loading' fires when a new navigation starts.
  */
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'loading' && tabStates.has(tabId)) {
     const state = getTabState(tabId);
     state.active = false;
@@ -424,6 +443,34 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     state.translatedCount = 0;
     updateBadge(tabId);
     persistTabStates();
+  }
+
+  /*
+   * Auto-activate: The extension defaults to ON for all websites.
+   * When the page finishes loading, activate translation automatically
+   * unless the user has previously disabled it for this domain.
+   */
+  if (changeInfo.status === 'complete' && tab?.url) {
+    const hostname = getHostname(tab.url);
+    if (hostname) {
+      const disabledDomains = await getDisabledDomains();
+      if (!disabledDomains.includes(hostname)) {
+        const state = getTabState(tabId);
+        if (!state.active) {
+          const settings = await getSettings();
+          const response = await sendToContentScript(tabId, {
+            action: 'ACTIVATE',
+            payload: { settings }
+          });
+          if (response !== null) {
+            state.active = true;
+            await updateBadge(tabId);
+            await persistTabStates();
+            console.log(`[VisionTranslate] Auto-activated on ${hostname} (tab ${tabId})`);
+          }
+        }
+      }
+    }
   }
 });
 
@@ -857,12 +904,29 @@ async function toggleTranslation(tabId) {
   const state = getTabState(tabId);
   state.active = !state.active;
 
+  /*
+   * Get the tab's hostname so we can persist the per-domain preference.
+   * Toggling OFF adds the domain to the disabled list (stays off on
+   * future visits). Toggling ON removes it (auto-activates again).
+   */
+  let hostname = null;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    hostname = getHostname(tab?.url);
+  } catch {
+    /* Tab may have been closed */
+  }
+
   if (state.active) {
     /*
      * --- ACTIVATE ---
      * Load current settings and send them along with the activation
      * message so the content script has everything it needs immediately.
      */
+    if (hostname) {
+      await removeDisabledDomain(hostname);
+    }
+
     const settings = await getSettings();
 
     const response = await sendToContentScript(tabId, {
@@ -884,7 +948,12 @@ async function toggleTranslation(tabId) {
     /*
      * --- DEACTIVATE ---
      * Tell the content script to remove overlays and clean up.
+     * Add the domain to the disabled list so it stays off.
      */
+    if (hostname) {
+      await addDisabledDomain(hostname);
+    }
+
     await sendToContentScript(tabId, {
       action: 'DEACTIVATE',
       payload: {}
@@ -901,5 +970,5 @@ async function toggleTranslation(tabId) {
   /* Persist to chrome.storage so state survives worker restarts */
   await persistTabStates();
 
-  console.log(`[VisionTranslate] Translation ${state.active ? 'activated' : 'deactivated'} on tab ${tabId}`);
+  console.log(`[VisionTranslate] Translation ${state.active ? 'activated' : 'deactivated'} on tab ${tabId}${hostname ? ` (${hostname})` : ''}`);
 }

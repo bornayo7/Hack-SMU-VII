@@ -306,8 +306,8 @@ export default function App() {
   const pageStatusDescription = tabUnavailable
     ? "This tab does not allow extension scripts."
     : tabState.active
-      ? "Toolbar and per-image controls stay available until you switch them off."
-      : "Turn this on to keep VisionTranslate active on the current tab.";
+      ? "Active on this site. Turning it off will keep it disabled for this domain."
+      : "Disabled for this site. Turning it on will re-enable it for future visits.";
 
   async function handleTogglePage() {
     if (!activeTabId) {
