@@ -142,7 +142,7 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
           targetLang,
           apiKey,
           'openai',
-          settings.openaiModel || 'gpt-4o-mini'
+          settings.llmModel || 'gpt-4o-mini'
         );
         break;
       }
@@ -161,7 +161,7 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
           targetLang,
           apiKey,
           'claude',
-          settings.claudeModel || 'claude-sonnet-4-20250514'
+          settings.llmModel || 'claude-sonnet-4-20250514'
         );
         break;
       }
@@ -180,7 +180,7 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
           targetLang,
           apiKey,
           'gemini',
-          settings.geminiModel || 'gemini-2.0-flash'
+          settings.llmModel || 'gemini-2.0-flash'
         );
         break;
       }

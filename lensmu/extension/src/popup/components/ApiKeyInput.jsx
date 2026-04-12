@@ -52,15 +52,20 @@ export default function ApiKeyInput({
       if (saveTimer) clearTimeout(saveTimer);
 
       const timer = setTimeout(() => {
-        // Actual save is handled by App.jsx's useEffect via the onChange callback above.
-        // Flash the saved indicator so the user gets feedback.
+        // chrome.storage.local.set writes to the extension's local storage.
+        // This is async but we don't need to await it for the UI to update.
+        if (typeof chrome !== "undefined" && chrome.storage) {
+          chrome.storage.local.set({ [storageKey]: newValue });
+        }
+
+        // Flash the saved indicator
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
       }, 500);
 
       setSaveTimer(timer);
     },
-    [onChange, saveTimer]
+    [onChange, storageKey, saveTimer]
   );
 
   // Cleanup timer on unmount to avoid memory leaks
