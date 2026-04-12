@@ -378,7 +378,9 @@ async function callGemini(userMessage, apiKey, model) {
  *
  * This parser is intentionally forgiving — LLMs sometimes add extra
  * whitespace, blank lines, or slight format variations. We handle:
- *   - "[1]" or "1." or "1)" as number prefixes
+ *   - "[1]", "1.", "1)", or "1:" as number prefixes
+ *   - Number-only marker lines where the translation follows below
+ *   - Structured JSON responses from stricter/custom models
  *   - Extra blank lines between entries
  *   - Missing numbers (we try to infer from position)
  *
@@ -387,41 +389,37 @@ async function callGemini(userMessage, apiKey, model) {
  * @returns {string[]}          — Array of translated strings
  */
 function parseNumberedResponse(responseText, expectedCount) {
-  /*
-   * Strategy: Use regex to find all [N] patterns and extract text after them.
-   * The text for entry N extends from after [N] to just before [N+1] (or end).
-   */
+  const normalizedResponse = normalizeModelResponseText(responseText);
   const entries = new Map();
 
   /*
-   * Match patterns like:
-   *   [1] some text
-   *   [2] more text
-   *   1. some text
-   *   1) some text
-   *
-   * The regex captures the number and the text after it.
-   * We use a global match to find all entries.
+   * First try structured outputs such as:
+   *   ["Hello", "Goodbye"]
+   *   {"1": "Hello", "2": "Goodbye"}
+   *   {"translations": ["Hello", "Goodbye"]}
    */
-  const pattern = /\[(\d+)\]\s*(.+?)(?=\n\[?\d+[\].)]\s|\n*$)/gs;
-  let match;
+  parseStructuredResponse(normalizedResponse, expectedCount, entries);
 
-  while ((match = pattern.exec(responseText)) !== null) {
-    const index = parseInt(match[1], 10) - 1; // Convert 1-based to 0-based
-    const text = match[2].trim();
-    if (index >= 0 && index < expectedCount) {
-      entries.set(index, text);
-    }
+  /*
+   * Then parse the more common numbered-list output line by line.
+   * This also handles cases where the model emits:
+   *   1
+   *   Hello
+   *   2
+   *   Goodbye
+   */
+  if (entries.size < expectedCount) {
+    collectLineNumberedEntries(normalizedResponse, expectedCount, entries);
   }
 
   /*
-   * If the regex didn't find enough entries (LLM used a different format),
-   * fall back to splitting by newlines and taking non-empty lines.
+   * If we still do not have enough entries, fall back to splitting by
+   * newlines and taking the remaining non-empty lines in order.
    */
   if (entries.size < expectedCount) {
-    const lines = responseText
+    const lines = normalizedResponse
       .split('\n')
-      .map((line) => line.replace(/^\[?\d+[\].)]\s*/, '').trim())
+      .map((line) => stripLeadingNumberMarker(line))
       .filter((line) => line.length > 0);
 
     for (let i = 0; i < Math.min(lines.length, expectedCount); i++) {
@@ -440,6 +438,235 @@ function parseNumberedResponse(responseText, expectedCount) {
   }
 
   return result;
+}
+
+function normalizeModelResponseText(responseText) {
+  if (typeof responseText === 'string') {
+    return responseText.replace(/\r\n?/g, '\n').trim();
+  }
+
+  if (Array.isArray(responseText)) {
+    return responseText
+      .map((part) => normalizeModelResponseText(part))
+      .filter((part) => part.length > 0)
+      .join('\n')
+      .trim();
+  }
+
+  if (responseText && typeof responseText === 'object') {
+    if (typeof responseText.text === 'string') {
+      return responseText.text.replace(/\r\n?/g, '\n').trim();
+    }
+
+    if (typeof responseText.content === 'string') {
+      return responseText.content.replace(/\r\n?/g, '\n').trim();
+    }
+
+    if (Array.isArray(responseText.content)) {
+      return normalizeModelResponseText(responseText.content);
+    }
+
+    if (typeof responseText.translation === 'string') {
+      return responseText.translation.replace(/\r\n?/g, '\n').trim();
+    }
+
+    return JSON.stringify(responseText);
+  }
+
+  return String(responseText ?? '').replace(/\r\n?/g, '\n').trim();
+}
+
+function parseStructuredResponse(responseText, expectedCount, entries) {
+  if (!responseText || !['[', '{'].includes(responseText[0])) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(responseText);
+    addStructuredEntries(parsed, expectedCount, entries);
+  } catch (_error) {
+    /* Not valid JSON — fall back to the free-form parser below. */
+  }
+}
+
+function addStructuredEntries(value, expectedCount, entries) {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < Math.min(value.length, expectedCount); i++) {
+      const translation = normalizeStructuredTranslation(value[i]);
+      if (translation) {
+        entries.set(i, translation);
+      }
+    }
+    return;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value.translations)) {
+    addStructuredEntries(value.translations, expectedCount, entries);
+    return;
+  }
+
+  const numericKeys = Object.keys(value)
+    .filter((key) => /^\d+$/.test(key))
+    .map((key) => Number(key))
+    .sort((a, b) => a - b);
+
+  for (const key of numericKeys) {
+    const index = key - 1;
+    if (index < 0 || index >= expectedCount) {
+      continue;
+    }
+
+    const translation = normalizeStructuredTranslation(value[String(key)]);
+    if (translation) {
+      entries.set(index, translation);
+    }
+  }
+}
+
+function normalizeStructuredTranslation(value) {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => normalizeStructuredTranslation(part))
+      .filter((part) => part.length > 0)
+      .join('\n')
+      .trim();
+  }
+
+  if (value && typeof value === 'object') {
+    if (typeof value.translation === 'string') {
+      return value.translation.trim();
+    }
+
+    if (typeof value.text === 'string') {
+      return value.text.trim();
+    }
+
+    if (typeof value.content === 'string') {
+      return value.content.trim();
+    }
+  }
+
+  return '';
+}
+
+function collectLineNumberedEntries(responseText, expectedCount, entries) {
+  const lines = responseText.split('\n');
+  let currentIndex = null;
+  let currentLines = [];
+
+  const flushCurrent = () => {
+    if (currentIndex === null) {
+      return;
+    }
+
+    const translation = currentLines.join('\n').trim();
+    if (translation && !entries.has(currentIndex)) {
+      entries.set(currentIndex, translation);
+    }
+  };
+
+  for (const rawLine of lines) {
+    const trimmedLine = rawLine.trim();
+
+    if (trimmedLine.length === 0) {
+      if (currentIndex !== null && currentLines.length > 0) {
+        currentLines.push('');
+      }
+      continue;
+    }
+
+    const marker = extractLineMarker(trimmedLine, expectedCount);
+    if (marker) {
+      flushCurrent();
+      currentIndex = marker.index;
+      currentLines = marker.text ? [marker.text] : [];
+      continue;
+    }
+
+    if (currentIndex !== null) {
+      currentLines.push(trimmedLine);
+    }
+  }
+
+  flushCurrent();
+}
+
+function extractLineMarker(line, expectedCount) {
+  const bracketedMatch = line.match(
+    /^(?:[-*]\s*)?(?:\*\*|__)?\s*\[(\d+)\]\s*(.*?)(?:\s*(?:\*\*|__))?$/
+  );
+  if (bracketedMatch) {
+    const index = parseLineMarkerIndex(bracketedMatch[1], expectedCount);
+    if (index !== null) {
+      return {
+        index,
+        text: bracketedMatch[2].trim()
+      };
+    }
+  }
+
+  const punctuatedMatch = line.match(
+    /^(?:[-*]\s*)?(?:\*\*|__)?\s*(\d+)[.)\:：-](?:\s+|$)(.*?)(?:\s*(?:\*\*|__))?$/
+  );
+  if (punctuatedMatch) {
+    const index = parseLineMarkerIndex(punctuatedMatch[1], expectedCount);
+    if (index !== null) {
+      return {
+        index,
+        text: punctuatedMatch[2].trim()
+      };
+    }
+  }
+
+  const standaloneMatch = line.match(
+    /^(?:[-*]\s*)?(?:\*\*|__)?\s*(\d+)\s*(?:\*\*|__)?$/
+  );
+  if (standaloneMatch) {
+    const index = parseLineMarkerIndex(standaloneMatch[1], expectedCount);
+    if (index !== null) {
+      return {
+        index,
+        text: ''
+      };
+    }
+  }
+
+  return null;
+}
+
+function parseLineMarkerIndex(rawIndex, expectedCount) {
+  const index = parseInt(rawIndex, 10) - 1;
+  if (Number.isNaN(index) || index < 0 || index >= expectedCount) {
+    return null;
+  }
+
+  return index;
+}
+
+function stripLeadingNumberMarker(line) {
+  const trimmedLine = line.trim();
+
+  if (/^(?:[-*]\s*)?(?:\*\*|__)?\s*\d+\s*(?:\*\*|__)?$/.test(trimmedLine)) {
+    return '';
+  }
+
+  return trimmedLine
+    .replace(/^(?:[-*]\s*)?(?:\*\*|__)?\s*\[(\d+)\]\s*/, '')
+    .replace(/^(?:[-*]\s*)?(?:\*\*|__)?\s*(\d+)[.)\:：-](?:\s+|$)/, '')
+    .replace(/(?:\s*(?:\*\*|__))$/, '')
+    .trim();
 }
 
 /**

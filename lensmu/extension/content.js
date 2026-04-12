@@ -240,6 +240,17 @@ async function runTesseractOCR(imageBase64) {
   return lines.length > 0 ? lines : blocks;
 }
 
+let textBlockGrouperPromise = null;
+
+async function groupOCRResults(blocks) {
+  if (!textBlockGrouperPromise) {
+    textBlockGrouperPromise = import(chrome.runtime.getURL('ocr/group-text-blocks.js'));
+  }
+
+  const { groupTextBlocks } = await textBlockGrouperPromise;
+  return groupTextBlocks(blocks);
+}
+
 function imageToBase64(imageElement) {
   try {
     /*
@@ -575,10 +586,17 @@ function createOverlay(imageElement) {
     imageElement.parentNode.insertBefore(wrapper, imageElement);
     wrapper.appendChild(imageElement);
 
-    /* Make the image fill the wrapper */
+    /* Make the image fill the wrapper exactly — reset CSS properties
+     * that could cause the image content area to not match the wrapper */
     imageElement.style.display = 'block';
     imageElement.style.width = '100%';
     imageElement.style.height = '100%';
+    imageElement.style.objectFit = 'fill';
+    imageElement.style.objectPosition = 'top left';
+    imageElement.style.padding = '0';
+    imageElement.style.margin = '0';
+    imageElement.style.border = 'none';
+    imageElement.style.boxSizing = 'border-box';
   } else {
     /*
      * For background-image elements, we cannot move them (it would break
@@ -758,17 +776,35 @@ async function processImage(imageInfo) {
      * we run it right here in the content script. Tesseract.js is loaded
      * from the extension bundle and runs entirely in the browser via WASM.
      */
+<<<<<<< Updated upstream
     let ocrResults;
+=======
+    let ocrResults = ocrResponse.body?.blocks || [];
+    let resultsAlreadyGrouped = Boolean(ocrResponse.body?.grouped);
+>>>>>>> Stashed changes
     if (ocrResponse.body?.useClientOCR) {
       console.log('[VisionTranslate] Using client-side Tesseract.js OCR');
       try {
+<<<<<<< Updated upstream
         ocrResults = await runTesseractOCR(imageBase64);
+=======
+        ocrResults = await runBundledTesseractOCR(imageBase64);
+        resultsAlreadyGrouped = false;
+>>>>>>> Stashed changes
       } catch (tessError) {
         console.warn('[VisionTranslate] Tesseract.js OCR failed:', tessError.message);
         return;
       }
     } else {
       ocrResults = ocrResponse.body?.blocks || [];
+    }
+
+    if (!resultsAlreadyGrouped && ocrResults.length > 1) {
+      const originalCount = ocrResults.length;
+      ocrResults = await groupOCRResults(ocrResults);
+      console.log(
+        `[VisionTranslate] Grouped OCR blocks from ${originalCount} fragments to ${ocrResults.length} regions`
+      );
     }
 
     /* If no text was found in the image, skip it */

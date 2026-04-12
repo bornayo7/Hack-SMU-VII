@@ -303,6 +303,123 @@ function getConfidenceBorderColor(confidence) {
   }
 }
 
+function breakTokenToFit(ctx, token, maxWidth) {
+  if (ctx.measureText(token).width <= maxWidth) {
+    return [token];
+  }
+
+  const fragments = [];
+  let currentFragment = '';
+
+  for (const char of Array.from(token)) {
+    const testFragment = currentFragment + char;
+
+    if (currentFragment && ctx.measureText(testFragment).width > maxWidth) {
+      fragments.push(currentFragment);
+      currentFragment = char;
+    } else if (ctx.measureText(testFragment).width > maxWidth) {
+      fragments.push(char);
+      currentFragment = '';
+    } else {
+      currentFragment = testFragment;
+    }
+  }
+
+  if (currentFragment) {
+    fragments.push(currentFragment);
+  }
+
+  return fragments.length > 0 ? fragments : [token];
+}
+
+function wrapHorizontalText(
+  ctx,
+  text,
+  availableWidth,
+  availableHeight,
+  lineHeight,
+  { allowTruncation = true } = {}
+) {
+  const wrappedLines = [];
+  const paragraphs = String(text || '')
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+
+  if (paragraphs.length === 0) {
+    return {
+      lines: [''],
+      truncated: false
+    };
+  }
+
+  for (const paragraph of paragraphs) {
+    const useWordTokens = /\s/.test(paragraph);
+    const separator = useWordTokens ? ' ' : '';
+    const tokens = useWordTokens
+      ? paragraph.split(/\s+/).filter(Boolean)
+      : Array.from(paragraph);
+
+    let currentLine = '';
+
+    for (const token of tokens) {
+      const fragments = breakTokenToFit(ctx, token, availableWidth);
+
+      for (const fragment of fragments) {
+        const testLine = currentLine
+          ? `${currentLine}${separator}${fragment}`
+          : fragment;
+
+        if (currentLine && ctx.measureText(testLine).width > availableWidth) {
+          wrappedLines.push(currentLine);
+          currentLine = fragment;
+        } else if (ctx.measureText(testLine).width > availableWidth) {
+          wrappedLines.push(truncateWithEllipsis(ctx, fragment, availableWidth));
+          currentLine = '';
+        } else {
+          currentLine = testLine;
+        }
+      }
+    }
+
+    if (currentLine) {
+      wrappedLines.push(currentLine);
+    }
+  }
+
+  if (wrappedLines.length === 0) {
+    return {
+      lines: [''],
+      truncated: false
+    };
+  }
+
+  const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
+
+  if (wrappedLines.length <= maxLines) {
+    return {
+      lines: wrappedLines,
+      truncated: false
+    };
+  }
+
+  if (!allowTruncation) {
+    return null;
+  }
+
+  const truncatedLines = wrappedLines.slice(0, maxLines);
+  truncatedLines[maxLines - 1] = truncateWithEllipsis(
+    ctx,
+    truncatedLines[maxLines - 1],
+    availableWidth
+  );
+
+  return {
+    lines: truncatedLines,
+    truncated: true
+  };
+}
+
 /*
  * --------------------------------------------------------------------------
  * Auto-Size Font to Fit Bounding Box
@@ -326,8 +443,9 @@ function getConfidenceBorderColor(confidence) {
  * @param {number} maxHeight — Maximum height in pixels
  * @param {string} fontFamily — Font family to use
  * @param {boolean} isVertical — Whether to render text vertically
- * @returns {{fontSize: number, lines: string[]}}
- *          The best font size and the text split into lines.
+ * @returns {{fontSize: number, lines: string[], truncated: boolean}}
+ *          The best font size, the text split into lines, and whether the
+ *          renderer had to truncate because the full translation could not fit.
  */
 function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
   /*
@@ -346,9 +464,10 @@ function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
   const PADDING = 4;
   const availableWidth = maxWidth - PADDING;
   const availableHeight = maxHeight - PADDING;
+  const normalizedText = String(text || '').trim();
 
   if (availableWidth <= 0 || availableHeight <= 0) {
-    return { fontSize: MIN_FONT_SIZE, lines: [text] };
+    return { fontSize: MIN_FONT_SIZE, lines: [normalizedText], truncated: false };
   }
 
   /*
@@ -357,7 +476,7 @@ function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
    *
    * Returns null if it doesn't fit, or the array of lines if it does.
    */
-  function tryFontSize(size) {
+  function tryFontSize(size, { allowTruncation = false } = {}) {
     ctx.font = `${size}px "${fontFamily}", sans-serif`;
 
     if (isVertical) {
@@ -384,61 +503,32 @@ function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
 
       /* Split text into column groups */
       const lines = [];
-      for (let i = 0; i < text.length; i += charsPerColumn) {
-        lines.push(text.slice(i, i + charsPerColumn));
+      for (let i = 0; i < normalizedText.length; i += charsPerColumn) {
+        lines.push(normalizedText.slice(i, i + charsPerColumn));
       }
 
-      return lines;
+      return {
+        lines,
+        truncated: false
+      };
     } else {
       /*
        * HORIZONTAL TEXT LAYOUT:
-       * Standard left-to-right text wrapping. We split the text into
-       * words and greedily add words to each line until the line would
-       * exceed availableWidth.
+       * Standard left-to-right text wrapping. We preserve explicit line
+       * breaks from translation output and fall back to character-level
+       * wrapping for text without spaces.
        *
        * Line height = font size * 1.3 (standard line spacing).
        */
       const lineHeight = size * 1.3;
-      const words = text.split(/\s+/);
-      const lines = [];
-      let currentLine = '';
-
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        const metrics = ctx.measureText(testLine);
-
-        if (metrics.width > availableWidth && currentLine) {
-          /* Current line is full; start a new one */
-          lines.push(currentLine);
-          currentLine = word;
-
-          /* Check if adding a new line would exceed height */
-          if ((lines.length + 1) * lineHeight > availableHeight) {
-            /*
-             * No room for another line. Truncate with ellipsis.
-             * We replace the last line with a truncated version.
-             */
-            lines[lines.length - 1] = truncateWithEllipsis(
-              ctx, lines[lines.length - 1], availableWidth
-            );
-            return lines;
-          }
-        } else {
-          currentLine = testLine;
-        }
-      }
-
-      /* Don't forget the last line */
-      if (currentLine) {
-        lines.push(currentLine);
-      }
-
-      /* Check if total height fits */
-      if (lines.length * lineHeight > availableHeight) {
-        return null; /* Doesn't fit at this font size */
-      }
-
-      return lines;
+      return wrapHorizontalText(
+        ctx,
+        normalizedText,
+        availableWidth,
+        availableHeight,
+        lineHeight,
+        { allowTruncation }
+      );
     }
   }
 
@@ -455,7 +545,8 @@ function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
   let low = MIN_FONT_SIZE;
   let high = Math.min(MAX_FONT_SIZE, 72); /* Cap at 72px for sanity */
   let bestSize = MIN_FONT_SIZE;
-  let bestLines = [text];
+  let bestLines = [normalizedText];
+  let foundUntruncatedFit = false;
 
   while (high - low > 0.5) {
     const mid = (low + high) / 2;
@@ -464,7 +555,8 @@ function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
     if (lines !== null) {
       /* It fits! Try a larger size. */
       bestSize = mid;
-      bestLines = lines;
+      bestLines = lines.lines;
+      foundUntruncatedFit = true;
       low = mid;
     } else {
       /* Doesn't fit. Try smaller. */
@@ -472,7 +564,16 @@ function autoSizeFont(ctx, text, maxWidth, maxHeight, fontFamily, isVertical) {
     }
   }
 
-  return { fontSize: bestSize, lines: bestLines };
+  if (foundUntruncatedFit) {
+    return { fontSize: bestSize, lines: bestLines, truncated: false };
+  }
+
+  const fallback = tryFontSize(MIN_FONT_SIZE, { allowTruncation: true });
+  return {
+    fontSize: MIN_FONT_SIZE,
+    lines: fallback?.lines || [truncateWithEllipsis(ctx, normalizedText, availableWidth)],
+    truncated: Boolean(fallback?.truncated)
+  };
 }
 
 /*
@@ -584,6 +685,15 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
   const ctx = canvas.getContext('2d');
 
   /*
+   * Explicitly set the DPR transform so coordinate math is always
+   * correct, regardless of any prior context state changes.
+   * After this, we work in CSS pixel space — drawing at (100, 100)
+   * maps to the correct internal canvas pixel on any display.
+   */
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  /*
    * Calculate scale factors. OCR bounding boxes are in the image's
    * natural coordinate space. The canvas CSS dimensions match the
    * displayed image size, which might be different.
@@ -593,9 +703,6 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
    *   Canvas CSS size: 500x400 (image scaled to 50%)
    *   scaleX = 500 / 1000 = 0.5
    *   An OCR box at x=200 maps to canvas x=100
-   *
-   * NOTE: The canvas context has already been scaled by DPR
-   * (devicePixelRatio) in content.js, so we work in CSS pixel space.
    */
   const naturalWidth = originalImage.naturalWidth || originalImage.width;
   const naturalHeight = originalImage.naturalHeight || originalImage.height;
@@ -694,10 +801,18 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
      * sampled background.
      */
     const textColor = getContrastColor(bgColor);
+<<<<<<< Updated upstream
+=======
+    const outlineColor = textColor === 'black' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.4)';
+>>>>>>> Stashed changes
 
     /*
      * STEP 5: Render the translated text.
      */
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x, box.y, box.width, box.height);
+    ctx.clip();
     ctx.font = `${fontSize}px ${fontFamily}`;
     ctx.fillStyle = textColor;
     ctx.textBaseline = 'top';
@@ -777,6 +892,7 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
       /* Reset textAlign for future operations */
       ctx.textAlign = 'start';
     }
+    ctx.restore();
 
     /*
      * STEP 6: Draw confidence border.
@@ -811,6 +927,8 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
  */
 export function restoreOriginal(canvas) {
   const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const displayWidth = parseFloat(canvas.style.width);
   const displayHeight = parseFloat(canvas.style.height);
 

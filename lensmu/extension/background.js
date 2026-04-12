@@ -62,6 +62,11 @@
  */
 import { getSettings, saveSettings } from './utils/storage.js';
 import { translateTexts } from './translate/translate-manager.js';
+<<<<<<< Updated upstream
+=======
+import { performOCR } from './ocr/ocr-manager.js';
+import { groupTextBlocks } from './ocr/group-text-blocks.js';
+>>>>>>> Stashed changes
 
 /*
  * --------------------------------------------------------------------------
@@ -507,10 +512,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               break;
             }
 
-            const bboxes = (detectResponse.body.detections || []).map(d => d.bbox);
+            const groupedDetections = groupTextBlocks(
+              (detectResponse.body.detections || []).map((detection) => ({
+                text: detection.text,
+                confidence: detection.confidence,
+                orientation: detection.orientation || 'horizontal',
+                bbox: {
+                  x: detection.bbox[0],
+                  y: detection.bbox[1],
+                  width: detection.bbox[2] - detection.bbox[0],
+                  height: detection.bbox[3] - detection.bbox[1]
+                }
+              }))
+            );
+
+            const bboxes = groupedDetections.map((detection) => ([
+              detection.bbox.x,
+              detection.bbox.y,
+              detection.bbox.x + detection.bbox.width,
+              detection.bbox.y + detection.bbox.height
+            ]));
 
             if (bboxes.length === 0) {
-              ocrResult = { blocks: [], source_lang: 'ja' };
+              ocrResult = { blocks: [], source_lang: 'ja', grouped: true };
             } else {
               const mangaResponse = await proxyFetch(`${backendUrl}/ocr/manga`, {
                 method: 'POST',
@@ -524,13 +548,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
 
               ocrResult = {
-                blocks: (mangaResponse.body.detections || []).map(d => ({
-                  text: d.text,
-                  confidence: 0.9,
-                  bbox: { x: d.bbox[0], y: d.bbox[1], width: d.bbox[2] - d.bbox[0], height: d.bbox[3] - d.bbox[1] },
-                  orientation: 'vertical'
+                blocks: (mangaResponse.body.detections || []).map((detection, index) => ({
+                  text: detection.text,
+                  confidence: groupedDetections[index]?.confidence || 0.9,
+                  bbox: {
+                    x: detection.bbox[0],
+                    y: detection.bbox[1],
+                    width: detection.bbox[2] - detection.bbox[0],
+                    height: detection.bbox[3] - detection.bbox[1]
+                  },
+                  orientation: groupedDetections[index]?.orientation || 'vertical'
                 })),
-                source_lang: 'ja'
+                source_lang: 'ja',
+                grouped: true
               };
             }
 
