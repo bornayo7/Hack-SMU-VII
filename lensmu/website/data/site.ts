@@ -149,14 +149,14 @@ export const useCases = [
 
 export const teamMembers: TeamMember[] = [
   {
-    name: "Daniel Oni",
-    role: "Backend and OCR Engineer",
-    initials: "DO",
+    name: "Yash Baruah",
+    role: "Product & UI Engineer",
+    initials: "YB",
     bio:
-      "Architects the core backend infrastructure and OCR pipeline, ensuring rapid, reliable text extraction and efficient data processing across the entire product ecosystem.",
-    avatarUrl: "https://github.com/Logan722.png?size=256",
-    github: "https://github.com/Logan722",
-    linkedin: "https://www.linkedin.com/in/daniel-oni-mscs/"
+      "Designed the application's user interface and co-developed the website. Additionally, contributed to fine-tuning the OCR models and is leading the integration of Auth0 and voice assistant capabilities.",
+    avatarUrl: "https://github.com/bornayo7.png?size=256",
+    github: "https://github.com/bornayo7",
+    linkedin: "https://www.linkedin.com/in/yashbaruah/"
   },
   {
     name: "Karyn L.D.",
@@ -179,14 +179,14 @@ export const teamMembers: TeamMember[] = [
     linkedin: "https://www.linkedin.com/in/ijaz-kiani/"
   },
   {
-    name: "Yash Baruah",
-    role: "Product & UI Engineer",
-    initials: "YB",
+    name: "Daniel Oni",
+    role: "Backend and OCR Engineer",
+    initials: "DO",
     bio:
-      "Designed the application's user interface and co-developed the website. Additionally, contributed to fine-tuning the OCR models and is leading the integration of Auth0 and voice assistant capabilities.",
-    avatarUrl: "https://github.com/bornayo7.png?size=256",
-    github: "https://github.com/bornayo7",
-    linkedin: "https://www.linkedin.com/in/yashbaruah/"
+      "Architects the core backend infrastructure and OCR pipeline, ensuring rapid, reliable text extraction and efficient data processing across the entire product ecosystem.",
+    avatarUrl: "https://github.com/Logan722.png?size=256",
+    github: "https://github.com/Logan722",
+    linkedin: "https://www.linkedin.com/in/daniel-oni-mscs/"
   }
 ];
 

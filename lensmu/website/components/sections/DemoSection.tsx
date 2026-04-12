@@ -8,20 +8,20 @@ export function DemoSection() {
   return (
     <section
       id="demo"
-      className="relative overflow-hidden bg-neutral-950 text-white section-padding"
+      className="relative overflow-hidden bg-muted/30 text-foreground section-padding"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/70 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-primary/15 via-transparent to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
       <div className="section-shell relative z-10">
         <RevealOnScroll className="mx-auto max-w-3xl text-center">
           <div>
-            <p className="text-sm font-semibold uppercase text-accent">
+            <p className="eyebrow">
               Product Showcase
             </p>
             <h2 className="mt-3 text-3xl font-bold leading-tight sm:text-4xl">
               See the extension translate visual text in real time.
             </h2>
-            <p className="mt-5 text-base leading-8 text-white/70">
+            <p className="mt-5 text-base leading-8 text-muted-foreground">
               This walkthrough shows VisionTranslate scanning a webpage image,
               extracting text with OCR, translating it, and placing the result
               directly over the original visual content.
@@ -34,17 +34,17 @@ export function DemoSection() {
           variant="scale-up"
           className="mx-auto mt-12 max-w-6xl"
         >
-          <div className="group overflow-hidden rounded-lg border border-white/20 bg-white/10 shadow-lift transition duration-500 hover:-translate-y-1 hover:border-primary/60">
-            <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-white/10 px-4 py-3">
+          <div className="group overflow-hidden rounded-xl border border-border/50 bg-card shadow-lift transition duration-500 hover:-translate-y-1 hover:border-primary/50">
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-border/50 bg-muted/50 px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="h-3 w-3 rounded-sm bg-secondary" />
-                <span className="h-3 w-3 rounded-sm bg-accent" />
-                <span className="h-3 w-3 rounded-sm bg-primary" />
-                <span className="ml-2 truncate text-xs font-medium text-white/70">
+                <span className="h-3 w-3 rounded-full bg-red-400" />
+                <span className="h-3 w-3 rounded-full bg-amber-400" />
+                <span className="h-3 w-3 rounded-full bg-green-400" />
+                <span className="ml-2 truncate text-xs font-medium text-muted-foreground">
                   VisionTranslate showcase playback
                 </span>
               </div>
-              <span className="hidden rounded-md bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground sm:inline-flex">
+              <span className="hidden rounded-full bg-primary/10 text-primary px-3 py-1 text-xs font-bold sm:inline-flex">
                 Production-ready tour
               </span>
             </div>
@@ -55,23 +55,23 @@ export function DemoSection() {
                 alt="VisionTranslate product tour video placeholder"
                 fill
                 sizes="(min-width: 1024px) 1152px, 100vw"
-                className="object-cover opacity-75 transition duration-700 group-hover:scale-105"
+                className="object-cover opacity-90 transition duration-700 group-hover:scale-105"
               />
-              <div className="absolute inset-0 bg-neutral-950/50 transition duration-700 group-hover:bg-neutral-950/40" />
+              <div className="absolute inset-0 bg-background/20 transition duration-700 group-hover:bg-background/10" />
               <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
                 <a
                   href="/contact"
-                  className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-md bg-white text-neutral-950 shadow-soft transition duration-300 hover:scale-105 hover:bg-accent"
+                  className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-glow transition duration-300 hover:scale-110"
                   aria-label="Watch product tour"
                 >
-                  <Play className="h-7 w-7" />
+                  <Play className="h-7 w-7 ml-1" />
                 </a>
-                <div className="max-w-lg rounded-md border border-white/20 bg-neutral-950/75 px-4 py-3 backdrop-blur">
-                  <p className="flex items-center justify-center gap-2 text-sm font-semibold">
-                    <Video className="h-4 w-4" />
+                <div className="max-w-lg rounded-xl border border-border/50 bg-background/80 px-5 py-4 backdrop-blur-md shadow-sm">
+                  <p className="flex items-center justify-center gap-2 text-sm font-semibold text-foreground">
+                    <Video className="h-4 w-4 text-primary" />
                     Product tour video placeholder
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-white/70">
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                     Drop in the final YouTube, Vimeo, or local showcase video to
                     display the full experience.
                   </p>
@@ -79,24 +79,24 @@ export function DemoSection() {
               </div>
             </div>
 
-            <div className="grid gap-4 border-t border-white/10 p-5 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="grid gap-4 border-t border-border/50 bg-muted/20 p-5 md:grid-cols-[1fr_auto] md:items-center">
               <div className="grid gap-3 sm:grid-cols-3">
                 {["Scans images", "Runs OCR", "Overlays translation"].map(
                   (item) => (
                     <div
                       key={item}
-                      className="flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-3 py-2 text-sm font-medium text-white/80"
+                      className="flex items-center gap-2 rounded-lg border border-border/50 bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm"
                     >
-                      <ScanText className="h-4 w-4 text-accent" />
+                      <ScanText className="h-4 w-4 text-primary" />
                       {item}
                     </div>
                   )
                 )}
               </div>
-              <Button variant="inverse" size="lg" asChild>
+              <Button variant="default" size="lg" className="rounded-full shadow-glow" asChild>
                 <a href="/contact">
                   See it in Action
-                  <ArrowRight className="h-5 w-5" />
+                  <ArrowRight className="h-5 w-5 ml-2" />
                 </a>
               </Button>
             </div>
