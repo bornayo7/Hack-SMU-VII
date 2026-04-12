@@ -27,15 +27,17 @@ BACKEND_DIR="$SCRIPT_DIR/lensmu/backend"
 EXTENSION_DIR="$SCRIPT_DIR/lensmu/extension"
 
 # ---------------------------------------------------------------------------
-# Step 1: Find Python 3.12
+# Step 1: Find Python 3.12 or newer (3.13, 3.14, ...)
 # ---------------------------------------------------------------------------
-echo "[1/5] Checking for Python 3.12..."
+echo "[1/5] Checking for Python 3.12+..."
 
 PYTHON312=""
-for cmd in python3.12 python3; do
+for cmd in python3.14 python3.13 python3.12 python3; do
     if command -v "$cmd" &>/dev/null; then
         version=$($cmd --version 2>&1)
-        if [[ "$version" == *"3.12"* ]]; then
+        # Accept any Python 3.12 or newer
+        minor=$(echo "$version" | sed -E 's/Python 3\.([0-9]+).*/\1/')
+        if [[ "$minor" =~ ^[0-9]+$ ]] && [ "$minor" -ge 12 ]; then
             PYTHON312="$cmd"
             echo "  Found: $version"
             break
@@ -44,7 +46,7 @@ for cmd in python3.12 python3; do
 done
 
 if [ -z "$PYTHON312" ]; then
-    echo "  Python 3.12 not found."
+    echo "  Python 3.12+ not found."
     echo ""
     echo "  Install it:"
     echo "    macOS:  brew install python@3.12"
@@ -81,13 +83,19 @@ pip install -r "$BACKEND_DIR/requirements.txt" --quiet
 echo "  Installing PaddlePaddle (this may take a few minutes)..."
 # Detect platform for PaddlePaddle install
 if [[ "$(uname -m)" == "arm64" ]] && [[ "$(uname)" == "Darwin" ]]; then
-    pip install paddlepaddle --quiet
+    pip install paddlepaddle --quiet 2>/dev/null || true
 else
-    pip install paddlepaddle --quiet
+    pip install paddlepaddle --quiet 2>/dev/null || true
 fi
 
-echo "  Installing PaddleOCR..."
-pip install "paddleocr>=2.7.0" --quiet
+if python -c "import paddle" &>/dev/null 2>&1; then
+    echo "  Installing PaddleOCR..."
+    pip install "paddleocr>=2.7.0" --quiet 2>/dev/null || echo "  WARNING: PaddleOCR could not be installed — PaddleOCR engine will be unavailable."
+else
+    echo "  WARNING: PaddlePaddle could not be installed (likely unsupported Python version)."
+    echo "           PaddleOCR engine will be unavailable. MangaOCR will still work."
+    echo "           To enable PaddleOCR, install Python 3.12: brew install python@3.12"
+fi
 
 echo "  Installing MangaOCR..."
 pip install "manga-ocr>=0.1.8" --quiet
