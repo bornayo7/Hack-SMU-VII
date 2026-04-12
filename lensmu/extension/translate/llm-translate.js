@@ -106,11 +106,12 @@ Response example:
  * @param {string}   sourceLang — Source language code ("auto", "ja", etc.)
  * @param {string}   targetLang — Target language code ("en", "es", etc.)
  * @param {string}   apiKey     — API key for the provider
- * @param {string}   provider   — "openai" or "claude"
+ * @param {string}   provider   — "openai", "claude", "gemini", or "custom"
  * @param {string}   model      — Model ID (e.g., "gpt-4o-mini", "claude-sonnet-4-20250514")
+ * @param {string}   [baseUrl]  — Custom API base URL (only used when provider is "custom")
  * @returns {Promise<Object>}   — { translations: string[], sourceLang, targetLang, provider }
  */
-export async function translateWithLLM(texts, sourceLang, targetLang, apiKey, provider, model) {
+export async function translateWithLLM(texts, sourceLang, targetLang, apiKey, provider, model, baseUrl) {
   /*
    * Build the user message with numbered text blocks.
    *
@@ -142,6 +143,8 @@ export async function translateWithLLM(texts, sourceLang, targetLang, apiKey, pr
     responseText = await callClaude(userMessage, apiKey, model);
   } else if (provider === 'gemini') {
     responseText = await callGemini(userMessage, apiKey, model);
+  } else if (provider === 'custom') {
+    responseText = await callCustom(userMessage, apiKey, model, baseUrl);
   } else {
     throw new Error(`Unknown LLM provider: ${provider}`);
   }
@@ -366,6 +369,60 @@ async function callGemini(userMessage, apiKey, model) {
    * }
    */
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+/**
+ * Call a custom OpenAI-compatible API endpoint.
+ *
+ * This uses the same request format as OpenAI's Chat Completions API,
+ * which is supported by many local and cloud providers (Ollama, LM Studio,
+ * vLLM, Azure OpenAI, Together AI, etc.).
+ *
+ * @param {string} userMessage — The user prompt
+ * @param {string} apiKey      — API key (can be empty for local servers)
+ * @param {string} model       — Model name
+ * @param {string} baseUrl     — Base URL of the API (e.g., "http://localhost:11434/v1")
+ * @returns {Promise<string>}  — The model's response text
+ */
+async function callCustom(userMessage, apiKey, model, baseUrl) {
+  const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        {
+          role: 'system',
+          content: MANGA_TRANSLATION_SYSTEM_PROMPT
+        },
+        {
+          role: 'user',
+          content: userMessage
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 2000
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      `Custom API error (${response.status}): ${error?.error?.message || response.statusText}`
+    );
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || '';
 }
 
 /**

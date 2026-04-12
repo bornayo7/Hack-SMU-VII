@@ -62,6 +62,9 @@ const DEFAULT_SETTINGS = {
   openaiApiKey: "",
   claudeApiKey: "",
   geminiApiKey: "",
+  customApiKey: "",
+  customBaseUrl: "",
+  customModelName: "",
 
   // LLM model to use when translating with OpenAI, Claude, or Gemini
   llmModel: "gemini-2.0-flash",
@@ -286,6 +289,16 @@ export default function App() {
             }
             llmModel={settings.llmModel}
             onLlmModelChange={(val) => updateSetting("llmModel", val)}
+            customApiKey={settings.customApiKey}
+            onCustomApiKeyChange={(val) => updateSetting("customApiKey", val)}
+            customBaseUrl={settings.customBaseUrl}
+            onCustomBaseUrlChange={(val) =>
+              updateSetting("customBaseUrl", val)
+            }
+            customModelName={settings.customModelName}
+            onCustomModelNameChange={(val) =>
+              updateSetting("customModelName", val)
+            }
           />
         </section>
 

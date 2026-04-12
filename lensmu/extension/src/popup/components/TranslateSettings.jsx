@@ -85,6 +85,14 @@ const PROVIDER_OPTIONS = [
     needsModel: true,
   },
   {
+    id: "custom",
+    name: "Custom API (OpenAI-compatible)",
+    description:
+      "Connect to any OpenAI-compatible API endpoint. Works with local LLMs (Ollama, LM Studio), Azure OpenAI, or any other compatible service.",
+    needsApiKey: "custom",
+    needsModel: false,
+  },
+  {
     id: "libre",
     name: "LibreTranslate / MyMemory",
     description:
@@ -176,6 +184,12 @@ export default function TranslateSettings({
   onGoogleCloudApiKeyChange,
   llmModel,
   onLlmModelChange,
+  customApiKey,
+  onCustomApiKeyChange,
+  customBaseUrl,
+  onCustomBaseUrlChange,
+  customModelName,
+  onCustomModelNameChange,
 }) {
   // Find the currently selected provider's metadata
   const selectedProvider = PROVIDER_OPTIONS.find((opt) => opt.id === provider);
@@ -273,6 +287,53 @@ export default function TranslateSettings({
               aistudio.google.com/apikey
             </a>
           </p>
+        </div>
+      )}
+
+      {selectedProvider && selectedProvider.needsApiKey === "custom" && (
+        <div className="conditional-config fade-in">
+          <div className="form-group">
+            <label className="form-label" htmlFor="custom-base-url">
+              API Base URL
+            </label>
+            <input
+              id="custom-base-url"
+              type="url"
+              className="form-input"
+              value={customBaseUrl || ""}
+              onChange={(e) => onCustomBaseUrlChange(e.target.value)}
+              placeholder="http://localhost:11434/v1"
+            />
+            <p className="form-hint">
+              The base URL of your OpenAI-compatible API (e.g.,
+              http://localhost:11434/v1 for Ollama, http://localhost:1234/v1 for
+              LM Studio).
+            </p>
+          </div>
+          <ApiKeyInput
+            label="API Key (optional for local servers)"
+            placeholder="Enter API key..."
+            storageKey="customApiKey"
+            value={customApiKey}
+            onChange={onCustomApiKeyChange}
+          />
+          <div className="form-group">
+            <label className="form-label" htmlFor="custom-model-name">
+              Model Name
+            </label>
+            <input
+              id="custom-model-name"
+              type="text"
+              className="form-input"
+              value={customModelName || ""}
+              onChange={(e) => onCustomModelNameChange(e.target.value)}
+              placeholder="llama3, mistral, gpt-4o, etc."
+            />
+            <p className="form-hint">
+              The model identifier your API expects (e.g., llama3 for Ollama,
+              or a deployment name for Azure OpenAI).
+            </p>
+          </div>
         </div>
       )}
 

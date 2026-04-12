@@ -185,6 +185,27 @@ export async function translateTexts(texts, sourceLang, targetLang, settings) {
         break;
       }
 
+      case 'custom': {
+        const baseUrl = settings.customBaseUrl;
+        if (!baseUrl) {
+          throw new Error(
+            'Custom API requires a base URL. ' +
+            'Please add your API base URL in the extension settings.'
+          );
+        }
+        const modelName = settings.customModelName || 'default';
+        result = await translateWithLLM(
+          filteredTexts,
+          sourceLang,
+          targetLang,
+          settings.customApiKey || '',
+          'custom',
+          modelName,
+          baseUrl
+        );
+        break;
+      }
+
       case 'libre':
       default: {
         /*
