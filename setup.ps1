@@ -83,7 +83,7 @@ Write-Host "  Installing core dependencies..."
 & $pipPath install -r (Join-Path $backendDir "requirements.txt") --quiet
 
 Write-Host "  Installing PaddlePaddle (this may take a few minutes)..."
-& $pipPath install paddlepaddle==2.6.2 --quiet
+& $pipPath install paddlepaddle --quiet
 
 Write-Host "  Installing PaddleOCR..."
 & $pipPath install "paddleocr>=2.7.0" --quiet
@@ -118,15 +118,15 @@ $extensionDir = Join-Path $PSScriptRoot "lensmu\extension"
 Push-Location $extensionDir
 
 Write-Host "  Running npm install..."
-npm install --silent 2>&1 | Out-Null
+npm install 2>&1 | Out-Null
 
 Write-Host "  Building popup..."
 $env:BUILD_TARGET = "popup"
-npx vite build --silent 2>&1 | Out-Null
+npx vite build
 
 Write-Host "  Building overlay..."
 $env:BUILD_TARGET = "overlay"
-npx vite build --silent 2>&1 | Out-Null
+npx vite build
 
 Pop-Location
 Write-Host "  Extension built." -ForegroundColor Green

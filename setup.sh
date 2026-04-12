@@ -81,9 +81,9 @@ pip install -r "$BACKEND_DIR/requirements.txt" --quiet
 echo "  Installing PaddlePaddle (this may take a few minutes)..."
 # Detect platform for PaddlePaddle install
 if [[ "$(uname -m)" == "arm64" ]] && [[ "$(uname)" == "Darwin" ]]; then
-    pip install paddlepaddle==2.6.2 -f https://www.paddlepaddle.org.cn/whl/mac/cpu/paddlepaddle.html --quiet
+    pip install paddlepaddle --quiet
 else
-    pip install paddlepaddle==2.6.2 --quiet
+    pip install paddlepaddle --quiet
 fi
 
 echo "  Installing PaddleOCR..."
