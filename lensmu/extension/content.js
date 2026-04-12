@@ -1412,7 +1412,7 @@ function createToolbar() {
   });
 
   /* Add to page */
-  document.body.appendChild(toolbarContainer);
+  img.parentElement.appendChild(toolbarContainer);
 
   console.log('[VisionTranslate] Toolbar created');
 }
