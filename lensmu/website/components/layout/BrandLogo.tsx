@@ -46,7 +46,7 @@ export function BrandLogo({
             inverse ? "text-white/70" : "text-muted-foreground"
           )}
         >
-          LensMU
+          Translate visual text anywhere
         </span>
       </span>
     </span>

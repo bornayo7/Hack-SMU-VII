@@ -5,7 +5,7 @@ const CORS_HEADERS = "Authorization, Content-Type";
 
 function getAllowedOrigins() {
   return new Set(
-    (process.env.LENSMU_EXTENSION_ORIGINS || "")
+    (process.env.VT_EXTENSION_ORIGINS || "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean)

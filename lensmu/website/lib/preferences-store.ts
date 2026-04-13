@@ -10,7 +10,7 @@ import {
   type SyncedPreferences,
 } from "./preferences-schema";
 
-const USER_METADATA_KEY = "lensmu_preferences";
+const USER_METADATA_KEY = "vt_preferences";
 const EMPTY_UPDATED_AT = new Date(0).toISOString();
 
 type StoredPreferenceEnvelope = {

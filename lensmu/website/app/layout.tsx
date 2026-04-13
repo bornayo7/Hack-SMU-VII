@@ -8,10 +8,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "VisionTranslate | Translate text inside images across the web",
   description:
-    "VisionTranslate, also called LensMU, is a browser extension that detects text inside webpage images and overlays translated text directly on the page.",
+    "VisionTranslate is a browser extension that detects text inside webpage images and overlays translated text directly on the page.",
   keywords: [
     "VisionTranslate",
-    "LensMU",
     "browser extension",
     "OCR",
     "image translation",

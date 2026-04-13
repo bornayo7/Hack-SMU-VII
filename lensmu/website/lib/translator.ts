@@ -1,13 +1,6 @@
-/**
- * Client-side translation pipeline for the website demo.
- *
- * Flow: File -> base64 -> OCR backend -> translate -> render canvas -> Blob
- *
- * The FastAPI backend at DEFAULT_BACKEND_URL must be running and its CORS
- * config must allow http://localhost:3000 (it does by default — see
- * lensmu/backend/server.py). All work happens in the browser; no Next.js
- * API route is needed.
- */
+// Client-side translation pipeline for the website demo.
+// Requires the FastAPI backend at DEFAULT_BACKEND_URL with CORS for localhost:3000.
+// All work happens in the browser; no Next.js API route is needed.
 
 export type ProcessState =
   | "idle"
@@ -47,10 +40,6 @@ export type TranslateResult = {
 
 const DEFAULT_BACKEND_URL = "http://localhost:8000";
 const MYMEMORY_CHAR_LIMIT = 500;
-
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
 
 export async function translateImage(
   options: TranslateOptions
@@ -104,9 +93,7 @@ export async function translateImage(
   };
 }
 
-// ---------------------------------------------------------------------------
-// File helpers
-// ---------------------------------------------------------------------------
+// -- File helpers --
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -140,9 +127,7 @@ function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// OCR — talks to the FastAPI backend directly
-// ---------------------------------------------------------------------------
+// -- OCR (FastAPI backend) --
 
 async function runOCR(
   imageBase64: string,
@@ -244,9 +229,7 @@ async function postJSON(url: string, body: unknown): Promise<any> {
   return response.json();
 }
 
-// ---------------------------------------------------------------------------
-// Translation — MyMemory free API (no key needed, CORS-enabled)
-// ---------------------------------------------------------------------------
+// -- Translation (MyMemory free API) --
 
 async function translateTexts(
   texts: string[],
@@ -308,9 +291,7 @@ async function translateOne(
   return translated || text;
 }
 
-// ---------------------------------------------------------------------------
-// Canvas rendering — draw original + translated overlays, export as Blob
-// ---------------------------------------------------------------------------
+// -- Canvas rendering --
 
 async function renderTranslatedImage(
   image: HTMLImageElement,

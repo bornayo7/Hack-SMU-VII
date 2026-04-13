@@ -18,7 +18,7 @@ set -e
 
 echo ""
 echo "========================================"
-echo "  VisionTranslate (LenSMU) Setup"
+echo "  VisionTranslate Setup"
 echo "========================================"
 echo ""
 

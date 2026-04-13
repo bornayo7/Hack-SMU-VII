@@ -1,4 +1,4 @@
-# Contributing to LenSMU (VisionTranslate)
+# Contributing to VisionTranslate
 
 Thanks for your interest in contributing to VisionTranslate! This guide covers everything you need to get started.
 

@@ -381,7 +381,7 @@ export function TranslatorSection() {
                         Make sure the Python backend is running at{" "}
                         <code className="text-foreground">http://localhost:8000</code>{" "}
                         (<code className="text-foreground">python server.py</code> in{" "}
-                        <code className="text-foreground">lensmu/backend/</code>).
+                        <code className="text-foreground">backend/</code>).
                       </p>
                       <Button
                         variant="outline"

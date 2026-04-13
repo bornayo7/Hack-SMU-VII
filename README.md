@@ -6,10 +6,10 @@
     \  /   | |\__ \| || (_) || .  | | |  | (_| || | | |\__ \| || (_| || |_|  __/
      \/    |_||___/|_| \___/ |_|\_| |_|   \__,_||_| |_||___/|_| \__,_| \__|\___|
 
-                         lensmu -- see it, read it, understand it
+                    VisionTranslate -- see it, read it, understand it
 ```
 
-# LenSMU — VisionTranslate
+# VisionTranslate
 
 > **See it. Read it. Understand it.**
 

@@ -56,7 +56,7 @@ website/
 ## Setup
 
 ```bash
-cd lensmu/website
+cd website
 npm install
 npm run dev
 ```
