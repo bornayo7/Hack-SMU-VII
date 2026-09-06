@@ -1536,8 +1536,12 @@ export function renderTranslation(canvas, originalImage, ocrResults, translation
   /*
    * Clear the overlay canvas before drawing. This removes any previous
    * rendering (important if we're re-rendering after a language change).
+   * Clear in bitmap coordinates, then restore the CSS-pixel transform.
    */
-  ctx.clearRect(0, 0, displayWidth, displayHeight);
+  ctx.save();
+  ctx.resetTransform();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
 
   /*
    * Process each text block (OCR result + its translation).
